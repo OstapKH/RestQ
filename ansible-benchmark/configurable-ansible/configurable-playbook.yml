@@ -196,12 +196,28 @@
       debug:
         msg: "Repository cloned"
 
+    - name: Set scale factor filename part
+      set_fact:
+        scale_factor_filename_part: "{{ scale_factor | regex_replace('^(\\d+)(\\.0+)?$', '\\1') | replace('.', '_') }}"
+
+    - name: Set dump filename based on benchmark configuration
+      set_fact:
+        dump_filename: "{{ benchmark_type | lower }}_sc_f_{{ scale_factor_filename_part }}.zip"
+
+    - name: Log dump configuration
+      debug:
+        msg: |
+          Database population configuration:
+          - Source: {{ database_source }}
+          - Dump filename: {{ dump_filename }}
+          - Dumps directory: {{ dumps_directory }}
+
     - name: Create SQL dumps directory on remote node
       file:
         path: "{{ dumps_directory }}"
         state: directory
         mode: '0755'
-      when: database_source == "dumps"
+      when: database_source == "dumps" or database_source == "huggingface"
 
     - name: Copy SQL dumps to remote node (when not using localhost)
       copy:
@@ -209,6 +225,21 @@
         dest: "{{ dumps_directory }}/"
         mode: '0644'
       when: database_source == "dumps" and deployment_mode != "localhost"
+
+    - name: Download SQL dump from Hugging Face
+      get_url:
+        url: "https://huggingface.co/datasets/{{ huggingface_repo }}/resolve/main/sql_dumps/postgresql/{{ dump_filename }}?download=true"
+        dest: "{{ dumps_directory }}/{{ dump_filename }}"
+        mode: '0644'
+      when: database_source == "huggingface"
+      register: hf_download
+      retries: 3
+      delay: 10
+
+    - name: Log Hugging Face download
+      debug:
+        msg: "Downloaded {{ dump_filename }} from Hugging Face."
+      when: database_source == "huggingface" and hf_download.changed
 
     - name: Log SQL dumps copy
       debug:
@@ -289,73 +320,6 @@
     - name: Initialize Maven wrapper
       shell: mvn -N io.takari:maven:wrapper
 
-    - name: Build benchbase
-      shell: |
-        cd {{ project_directory }}/benchbase/
-        ./mvnw clean install -P postgres -DskipTests
-      register: benchbase_build
-
-    - name: Log benchbase build
-      debug:
-        msg: "Benchbase build completed with status: {{ benchbase_build.rc }}"
-
-    - name: Build core
-      shell: |
-        cd {{ project_directory }}/core
-        mvn clean install -P executable-jar
-      register: core_build
-
-    - name: Log core build
-      debug:
-        msg: "Core build completed with status: {{ core_build.rc }}"
-
-    - name: Configure database connection properties
-      lineinfile:
-        path: "{{ project_directory }}/core/src/main/resources/application.properties"
-        regexp: '^spring.datasource.url=.*'
-        line: "spring.datasource.url=jdbc:postgresql://localhost:{{ postgres_port }}/{{ database_name }}"
-        create: yes
-
-    - name: Configure database username
-      lineinfile:
-        path: "{{ project_directory }}/core/src/main/resources/application.properties"
-        regexp: '^spring.datasource.username=.*'
-        line: "spring.datasource.username=admin"
-        create: yes
-
-    - name: Configure database password
-      lineinfile:
-        path: "{{ project_directory }}/core/src/main/resources/application.properties"
-        regexp: '^spring.datasource.password=.*'
-        line: "spring.datasource.password={{ postgres_password }}"
-        create: yes
-
-    - name: Configure benchmark type
-      lineinfile:
-        path: "{{ project_directory }}/core/src/main/resources/application.properties"
-        regexp: '^benchmark.type=.*'
-        line: "benchmark.type={{ benchmark_type }}"
-        create: yes
-
-    - name: Configure scale factor
-      lineinfile:
-        path: "{{ project_directory }}/core/src/main/resources/application.properties"
-        regexp: '^benchmark.scale-factor=.*'
-        line: "benchmark.scale-factor={{ scale_factor }}"
-        create: yes
-
-
-
-    - name: Rebuild core with updated configuration
-      shell: |
-        cd {{ project_directory }}/core
-        mvn clean install -P executable-jar
-      register: core_rebuild
-
-    - name: Log core rebuild
-      debug:
-        msg: "Core rebuild completed with status: {{ core_rebuild.rc }}"
-
     - name: Run setup-formula-config
       shell: |
         cd {{ project_directory }}/ansible-benchmark/powerAPI-intel
@@ -368,43 +332,30 @@
     # Database Population Logic
     # ====================================
     
-    - name: Set dump filename based on benchmark configuration
-      set_fact:
-        dump_filename: "{{ benchmark_type | lower }}_sc_f_{{ scale_factor | replace('.', '_') }}.zip"
-        scale_factor_normalized: "{{ scale_factor | replace('.', '_') }}"
-
-    - name: Log dump configuration
-      debug:
-        msg: |
-          Database population configuration:
-          - Source: {{ database_source }}
-          - Dump filename: {{ dump_filename }}
-          - Dumps directory: {{ dumps_directory }}
-
-    - name: Check if dump file exists (when database_source is 'dumps')
+    - name: Check if dump file exists (when database_source is 'dumps' or 'huggingface')
       stat:
         path: "{{ dumps_directory }}/{{ dump_filename }}"
       register: dump_file_check
-      when: database_source == "dumps"
+      when: database_source == "dumps" or database_source == "huggingface"
 
     - name: Log dump file availability
       debug:
         msg: "Dump file {{ dump_filename }} exists: {{ dump_file_check.stat.exists | default(false) }}"
-      when: database_source == "dumps"
+      when: database_source == "dumps" or database_source == "huggingface"
 
     - name: Create temporary directory for dump extraction
       file:
         path: /root/temp_dump_extract
         state: directory
         mode: '0755'
-      when: database_source == "dumps" and dump_file_check.stat.exists | default(false)
+      when: (database_source == "dumps" or database_source == "huggingface") and dump_file_check.stat.exists | default(false)
 
     - name: Extract dump file
       unarchive:
         src: "{{ dumps_directory }}/{{ dump_filename }}"
         dest: /root/temp_dump_extract
         remote_src: yes
-      when: database_source == "dumps" and dump_file_check.stat.exists | default(false)
+      when: (database_source == "dumps" or database_source == "huggingface") and dump_file_check.stat.exists | default(false)
       register: dump_extract
 
     - name: Find SQL dump file in extracted directory
@@ -413,34 +364,101 @@
         patterns: "*.sql"
         recurse: yes
       register: sql_files
-      when: database_source == "dumps" and dump_file_check.stat.exists | default(false)
+      when: (database_source == "dumps" or database_source == "huggingface") and dump_file_check.stat.exists | default(false)
 
     - name: Load database from dump
       shell: |
         PGPASSWORD={{ postgres_password }} psql -h localhost -p {{ postgres_port }} -U admin -d {{ database_name }} -f {{ sql_files.files[0].path }}
-      when: database_source == "dumps" and dump_file_check.stat.exists | default(false) and sql_files.files | length > 0
+      when: (database_source == "dumps" or database_source == "huggingface") and dump_file_check.stat.exists | default(false) and sql_files.files | length > 0
       register: dump_load_result
 
     - name: Log successful dump load
       debug:
         msg: "Database successfully populated from dump file: {{ dump_filename }}"
-      when: database_source == "dumps" and dump_file_check.stat.exists | default(false) and dump_load_result is defined and dump_load_result.rc == 0
+      when: (database_source == "dumps" or database_source == "huggingface") and dump_file_check.stat.exists | default(false) and dump_load_result is defined and dump_load_result.rc == 0
 
     - name: Clean up temporary dump extraction directory
       file:
         path: /root/temp_dump_extract
         state: absent
-      when: database_source == "dumps" and dump_file_check.stat.exists | default(false)
+      when: (database_source == "dumps" or database_source == "huggingface") and dump_file_check.stat.exists | default(false)
 
     - name: Set dump_loaded flag
       set_fact:
-        dump_loaded: "{{ database_source == 'dumps' and dump_file_check.stat.exists | default(false) and dump_load_result is defined and dump_load_result.rc == 0 }}"
+        dump_loaded: "{{ (database_source == 'dumps' or database_source == 'huggingface') and dump_file_check is defined and dump_file_check.stat.exists | default(false) and dump_load_result is defined and dump_load_result.rc == 0 }}"
 
-    - name: Run Java application to fulfill the DB with sample data (benchbase fallback)
-      shell: |
-        cd {{ project_directory }}/core
-        java -jar target/core-1.0-SNAPSHOT.jar > /root/core_server.log 2>&1
-      register: java_app_start
+    - name: Build and populate from source if dump failed or was not used
+      block:
+        - name: Build benchbase
+          shell: |
+            cd {{ project_directory }}/benchbase/
+            ./mvnw clean install -P postgres -DskipTests
+          register: benchbase_build
+
+        - name: Log benchbase build
+          debug:
+            msg: "Benchbase build completed with status: {{ benchbase_build.rc }}"
+
+        - name: Build core
+          shell: |
+            cd {{ project_directory }}/core
+            mvn clean install -P executable-jar
+          register: core_build
+
+        - name: Log core build
+          debug:
+            msg: "Core build completed with status: {{ core_build.rc }}"
+
+        - name: Configure database connection properties
+          lineinfile:
+            path: "{{ project_directory }}/core/src/main/resources/application.properties"
+            regexp: '^spring.datasource.url=.*'
+            line: "spring.datasource.url=jdbc:postgresql://localhost:{{ postgres_port }}/{{ database_name }}"
+            create: yes
+
+        - name: Configure database username
+          lineinfile:
+            path: "{{ project_directory }}/core/src/main/resources/application.properties"
+            regexp: '^spring.datasource.username=.*'
+            line: "spring.datasource.username=admin"
+            create: yes
+
+        - name: Configure database password
+          lineinfile:
+            path: "{{ project_directory }}/core/src/main/resources/application.properties"
+            regexp: '^spring.datasource.password=.*'
+            line: "spring.datasource.password={{ postgres_password }}"
+            create: yes
+
+        - name: Configure benchmark type
+          lineinfile:
+            path: "{{ project_directory }}/core/src/main/resources/application.properties"
+            regexp: '^benchmark.type=.*'
+            line: "benchmark.type={{ benchmark_type }}"
+            create: yes
+
+        - name: Configure scale factor
+          lineinfile:
+            path: "{{ project_directory }}/core/src/main/resources/application.properties"
+            regexp: '^benchmark.scale-factor=.*'
+            line: "benchmark.scale-factor={{ scale_factor }}"
+            create: yes
+
+        - name: Rebuild core with updated configuration
+          shell: |
+            cd {{ project_directory }}/core
+            mvn clean install -P executable-jar
+          register: core_rebuild
+
+        - name: Log core rebuild
+          debug:
+            msg: "Core rebuild completed with status: {{ core_rebuild.rc }}"
+
+        - name: Run Java application to fulfill the DB with sample data (benchbase fallback)
+          shell: |
+            cd {{ project_directory }}/core
+            java -jar target/core-1.0-SNAPSHOT.jar > /root/core_server.log 2>&1
+          register: java_app_start
       when: not (dump_loaded | default(false))
 
     - name: Log database population method used

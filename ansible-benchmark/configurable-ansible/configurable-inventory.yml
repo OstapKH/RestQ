@@ -15,7 +15,7 @@ all:
     grid_site: lille
     grid_time: '02:00:00'
     scaphandre_timestep_s: 1 # Timestep in seconds for power monitoring
-    ansible_ssh_private_key_file: ~/.ssh/grid5000_key
+    ansible_ssh_private_key_file_g5k: ~/.ssh/grid5000_key
     
     # ====================================
     # Manual Node Configuration (for manual mode)
@@ -41,16 +41,19 @@ all:
     # Repository Configuration
     # ====================================
     # GitHub repository URL for RestQFramework
-    github_repo_url: "https://github.com/OstapKH/RestQFramework.git"
-    project_directory: "/root/RestQFramework"
+    github_repo_url: "https://github.com/OstapKH/RestQ.git"
+    project_directory: "/root/RestQ"
     
     # ====================================
     # Database Dump Configuration
     # ====================================
     # Choose between using pre-made dumps or benchbase fulfillment
-    # Options: dumps, benchbase
-    database_source: dumps  # Use 'dumps' to try pre-made dumps first, 'benchbase' to use only benchbase
+    # Options: dumps, benchbase, huggingface
+    database_source: huggingface  # Use 'huggingface' to download from Hugging Face, 'dumps' for local, 'benchbase' for fulfillment.
     
+    # Configuration for Hugging Face
+    huggingface_repo: "OstapK/tpch_sc_f_1"
+
     # Dump file naming convention: {benchmark_type}_sc_f_{scale_factor}.zip
     # Examples: tpch_sc_f_1.zip, tpcc_sc_f_1.zip, tpch_sc_f_10.zip
     dumps_directory: "{{ project_directory }}/sql_dumps/postgresql"
@@ -76,106 +79,62 @@ all:
     # Use a static timestamp that will be consistent across all nodes
     # You can modify this for each experiment run
     timestamp: "{{ ansible_date_time.iso8601 }}"
-    
+
+    # Set connection variables based on deployment mode
+    ansible_user: >-
+      {%- if deployment_mode == 'grid5000' -%}
+      root
+      {%- elif deployment_mode == 'manual' -%}
+      {{ manual_nodes.ssh_user }}
+      {%- elif deployment_mode == 'localhost' -%}
+      {{ ansible_env.USER }}
+      {%- endif -%}
+    ansible_ssh_private_key_file: >-
+      {%- if deployment_mode == 'grid5000' -%}
+      {{ ansible_ssh_private_key_file_g5k }}
+      {%- elif deployment_mode == 'manual' -%}
+      {{ manual_nodes.ssh_key }}
+      {%- endif -%}
+    ansible_connection: >-
+      {%- if deployment_mode == 'localhost' -%}
+      local
+      {%- else -%}
+      ssh
+      {%- endif -%}
 
   hosts:
     # Grid5000 frontend (only used in grid5000 mode)
     grid5000:
       ansible_host: "frontend.{{ grid_site }}.grid5000.fr"
+      ansible_user: oskilbaso
       
     # Dynamic node configuration based on deployment_mode
     node1:
       ansible_host: >-
         {%- if deployment_mode == 'grid5000' -%}
-        {{ node1 | default('undefined') }}
+        {{ hostvars['grid5000']['node1'] }}
         {%- elif deployment_mode == 'manual' -%}
         {{ manual_nodes.node1_host }}
         {%- elif deployment_mode == 'localhost' -%}
         localhost
         {%- endif -%}
-      ansible_user: >-
-        {%- if deployment_mode == 'grid5000' -%}
-        root
-        {%- elif deployment_mode == 'manual' -%}
-        {{ manual_nodes.ssh_user }}
-        {%- elif deployment_mode == 'localhost' -%}
-        {{ ansible_user | default(ansible_env.USER) }}
-        {%- endif -%}
-      ansible_ssh_private_key_file: >-
-        {%- if deployment_mode == 'grid5000' -%}
-        {{ ansible_ssh_private_key_file }}
-        {%- elif deployment_mode == 'manual' -%}
-        {{ manual_nodes.ssh_key }}
-        {%- elif deployment_mode == 'localhost' -%}
-        
-        {%- endif -%}
-      ansible_connection: >-
-        {%- if deployment_mode == 'localhost' -%}
-        local
-        {%- else -%}
-        ssh
-        {%- endif -%}
         
     node2:
       ansible_host: >-
         {%- if deployment_mode == 'grid5000' -%}
-        {{ node2 | default('undefined') }}
+        {{ hostvars['grid5000']['node2'] }}
         {%- elif deployment_mode == 'manual' -%}
         {{ manual_nodes.node2_host }}
         {%- elif deployment_mode == 'localhost' -%}
         localhost
         {%- endif -%}
-      ansible_user: >-
-        {%- if deployment_mode == 'grid5000' -%}
-        root
-        {%- elif deployment_mode == 'manual' -%}
-        {{ manual_nodes.ssh_user }}
-        {%- elif deployment_mode == 'localhost' -%}
-        {{ ansible_user | default(ansible_env.USER) }}
-        {%- endif -%}
-      ansible_ssh_private_key_file: >-
-        {%- if deployment_mode == 'grid5000' -%}
-        {{ ansible_ssh_private_key_file }}
-        {%- elif deployment_mode == 'manual' -%}
-        {{ manual_nodes.ssh_key }}
-        {%- elif deployment_mode == 'localhost' -%}
-        
-        {%- endif -%}
-      ansible_connection: >-
-        {%- if deployment_mode == 'localhost' -%}
-        local
-        {%- else -%}
-        ssh
-        {%- endif -%}
         
     node3:
       ansible_host: >-
         {%- if deployment_mode == 'grid5000' -%}
-        {{ node3 | default('undefined') }}
+        {{ hostvars['grid5000']['node3'] }}
         {%- elif deployment_mode == 'manual' -%}
         {{ manual_nodes.node3_host }}
         {%- elif deployment_mode == 'localhost' -%}
         localhost
-        {%- endif -%}
-      ansible_user: >-
-        {%- if deployment_mode == 'grid5000' -%}
-        root
-        {%- elif deployment_mode == 'manual' -%}
-        {{ manual_nodes.ssh_user }}
-        {%- elif deployment_mode == 'localhost' -%}
-        {{ ansible_user | default(ansible_env.USER) }}
-        {%- endif -%}
-      ansible_ssh_private_key_file: >-
-        {%- if deployment_mode == 'grid5000' -%}
-        {{ ansible_ssh_private_key_file }}
-        {%- elif deployment_mode == 'manual' -%}
-        {{ manual_nodes.ssh_key }}
-        {%- elif deployment_mode == 'localhost' -%}
-        
-        {%- endif -%}
-      ansible_connection: >-
-        {%- if deployment_mode == 'localhost' -%}
-        local
-        {%- else -%}
-        ssh
         {%- endif -%} 
