@@ -60,11 +60,12 @@ Desktop.ini
 *.swp
 *.swo
 
-# Temporary - exclude large files until LFS is enabled
-/sql_dumps/
-/benchbase/data/
-
 # Ignore results and experiment outputs
 ~/Desktop/Results_rest_q_xml_benchmarks/
 /tmp/experiments_summary_dbserver.json
-/tmp/experiments_summary_apiserver.json 
+/tmp/experiments_summary_apiserver.json
+
+# Large data files - hosted on Hugging Face
+sql_dumps/
+benchbase/data/
+upload_to_huggingface.py
