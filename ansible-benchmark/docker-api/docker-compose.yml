@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  spring-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR_FILE: target/api-http-1.0-SNAPSHOT.jar
+    container_name: spring-api
+    ports:
+      - "8086:8086"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://<your-db-host>:5432/tpchdb
+      SPRING_DATASOURCE_USERNAME: admin
+      SPRING_DATASOURCE_PASSWORD: password
+    networks:
+      - spring-net
+
+networks:
+  spring-net:
+    driver: bridge

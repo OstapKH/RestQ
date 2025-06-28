@@ -1,0 +1,1109 @@
+- name: Initialize grid 5000
+  hosts: grid5000
+  remote_user: oskilbaso
+  vars:
+    OS_image: ubuntu2204-x64-min
+    grid_time: "{{ experiment_duration | default('5:00:00') }}"
+  tasks:
+
+    - name: Go to the frontend of {{ grid_site }} then create a job
+      command: "oarsub -l host=2,walltime={{ grid_time }} -r 'now' -t deploy -p 'host like chifflot-%'"
+      register: job_output
+
+    - name: Extract job ID for chifflot nodes
+      set_fact:
+        chifflot_job_id: "{{ job_output.stdout | regex_search('OAR_JOB_ID=(\\d+)', '\\1') | first }}"
+
+    - name: Log chifflot job ID
+      debug:
+        msg: "Chifflot Job ID: {{ chifflot_job_id }}"
+
+    - name: Wait for chifflot reservation validation
+      pause:
+        minutes: 10
+
+    - name: Get chifflot job details
+      command: "oarstat -f -j {{ chifflot_job_id }}"
+      register: chifflot_job_details
+
+    - name: Extract assigned chifflot hostnames
+      set_fact:
+        chifflot_nodes: "{{ (chifflot_job_details.stdout | regex_search('assigned_hostnames = (.+)', '\\1')) | first | split('+') }}"
+
+    - name: Log chifflot nodes
+      debug:
+        msg: "Chifflot nodes: {{ chifflot_nodes }}"
+
+    - name: Reserve one additional node
+      command: "oarsub -l host=1,walltime={{ grid_time }} -r 'now' -t deploy"
+      register: other_job_output
+
+    - name: Extract job ID for other node
+      set_fact:
+        other_job_id: "{{ other_job_output.stdout | regex_search('OAR_JOB_ID=(\\d+)', '\\1') | first }}"
+
+    - name: Log other job ID
+      debug:
+        msg: "Other Job ID: {{ other_job_id }}"
+
+    - name: Wait for other reservation validation
+      pause:
+        minutes: 10
+
+    - name: Get other job details
+      command: "oarstat -f -j {{ other_job_id }}"
+      register: other_job_details
+
+    - name: Extract assigned other hostname
+      set_fact:
+        other_node: "{{ (other_job_details.stdout | regex_search('assigned_hostnames = (.+)', '\\1')) | first }}"
+
+    - name: Log other node
+      debug:
+        msg: "Other node: {{ other_node }}"
+
+    - name: Assign node names to variables
+      set_fact:
+        node1: "{{ chifflot_nodes[0] }}"
+        node2: "{{ chifflot_nodes[1] }}"
+        node3: "{{ other_node }}"
+        cacheable: true
+
+    - name: Log node assignments
+      debug:
+        msg: "Node1 (chifflot): {{ node1 }}, Node2 (chifflot): {{ node2 }}, Node3: {{ node3 }}"
+
+    - name: Add nodes to in-memory inventory
+      add_host:
+        name: "{{ item }}"
+        ansible_host: "{{ lookup('vars', item) }}"
+        groups: reserved_nodes
+        # Make sure these are correctly passed to hostvars if needed later
+        node1_val: "{{ node1 }}"
+        node2_val: "{{ node2 }}"
+        node3_val: "{{ node3 }}"
+      loop:
+        - node1
+        - node2
+        - node3
+
+    - name: Deploy systems on all nodes in parallel
+      command: "kadeploy3 -m {{ item }} -e {{ OS_image }}"
+      loop:
+        - "{{ node1 }}"
+        - "{{ node2 }}"
+        - "{{ node3 }}"
+      async: 1800  # 30 minutes timeout
+      poll: 0
+      register: deploy_async_results
+
+    - name: Wait for parallel deployments to finish
+      async_status:
+        jid: "{{ item.ansible_job_id }}"
+      register: deploy_async_poll_results
+      until: deploy_async_poll_results.finished
+      retries: 300  # Retry for up to 300 * 10 seconds = 50 minutes
+      delay: 10  # Check every 10 seconds
+      loop: "{{ deploy_async_results.results }}"
+
+- name: Setup Node 1 (Database Server)
+  hosts: node1
+  remote_user: root
+  vars:
+    postgres_container_name: db-docker-container
+    postgres_image: postgres:14
+    postgres_password: password
+    tpcc_db: "{{ 'tpccdb' if benchmark_type == 'TPCC' else 'tpchdb' }}"
+    tpch_db: "{{ 'tpchdb' if benchmark_type == 'TPCH' else 'tpccdb' }}"
+    database_name: "{{ tpcc_db if benchmark_type == 'TPCC' else tpch_db }}"
+    postgres_port: 5432
+
+  tasks:
+    - name: Log experiment configuration
+      debug:
+        msg: |
+          Experiment Configuration:
+          - Benchmark Type: {{ benchmark_type }}
+          - Database: {{ database_name }}
+          - Scale Factor: {{ scale_factor }}{{ ' (warehouses)' if benchmark_type == 'TPCC' else '' }}
+          - Duration: {{ experiment_duration }}
+          - Timestamp: {{ timestamp }}
+
+    - name: Download Java 21
+      get_url:
+        url: https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.deb
+        dest: /root/jdk-21_linux-x64_bin.deb
+      register: java_download
+
+    - name: Log Java download
+      debug:
+        msg: "Java downloaded: {{ java_download.dest }}"
+
+    - name: Install Java 21
+      apt:
+        deb: /root/jdk-21_linux-x64_bin.deb
+      register: java_install
+
+    - name: Log Java installation
+      debug:
+        msg: "Java installation completed with status: {{ java_install.changed }}"
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Run apt-get update
+      command: apt-get update
+      changed_when: false
+
+    - name: Install wget, ca-certificates, and Docker dependencies
+      apt:
+        name:
+          - wget
+          - ca-certificates
+          - apt-transport-https
+          - gnupg-agent
+          - software-properties-common
+        state: present
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install Docker, Docker Compose, and PostgreSQL client
+      apt:
+        name:
+          - docker.io
+          - docker-compose
+          - postgresql-client
+          - unzip
+        state: present
+
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: true
+    
+    - name: Clone RestQFramework repository
+      git:
+        repo: "{{ github_repo_url }}"
+        dest: "{{ project_directory }}"
+        recursive: yes
+      register: git_clone
+
+    - name: Log repository clone
+      debug:
+        msg: "Repository cloned"
+
+    - name: Create SQL dumps directory on remote node
+      file:
+        path: "{{ dumps_directory }}"
+        state: directory
+        mode: '0755'
+      when: database_source == "dumps"
+
+    - name: Copy SQL dumps to remote node (when not using localhost)
+      copy:
+        src: "{{ playbook_dir }}/../../sql_dumps/postgresql/"
+        dest: "{{ dumps_directory }}/"
+        mode: '0644'
+      when: database_source == "dumps" and deployment_mode != "localhost"
+
+    - name: Log SQL dumps copy
+      debug:
+        msg: "SQL dumps copied to remote node at {{ dumps_directory }}"
+      when: database_source == "dumps" and deployment_mode != "localhost"
+
+    - name: Start PostgreSQL with docker-compose
+      shell: |
+        cd {{ project_directory }}/ansible-benchmark/docker-db
+        docker-compose up -d
+      register: docker_compose_result
+      retries: 3
+      delay: 10
+      until: docker_compose_result is success
+      ignore_errors: true
+
+    - name: Wait for PostgreSQL to be ready
+      wait_for:
+        host: 127.0.0.1
+        port: "{{ postgres_port }}"
+        delay: 5
+        timeout: 60
+        state: started
+
+    - name: Log database setup
+      debug:
+        msg: "PostgreSQL container is running with DB '{{ database_name }}' and user 'admin'"
+
+    - name: Set installation directory for libraries
+      set_fact:
+        library_install_dir: "/root/public"
+
+    - name: Install Cargo and other dependencies
+      apt:
+        name:
+          - cargo
+          - pkg-config
+          - libssl-dev
+        state: present
+        install_recommends: no
+
+    - name: Log installation of Cargo and dependencies
+      debug:
+        msg: "Cargo and other dependencies installed"
+
+    - name: Clone Scaphandre repo
+      git:
+        repo: https://github.com/hubblo-org/scaphandre.git
+        dest: "{{ library_install_dir }}/scaphandre"
+        update: no
+
+    - name: Log Scaphandre repo clone
+      debug:
+        msg: "Scaphandre repo cloned to {{ library_install_dir }}/scaphandre."
+
+    - name: Build Scaphandre
+      shell: |
+        cd {{ library_install_dir }}/scaphandre
+        cargo build --release
+
+    - name: Log Scaphandre build completion
+      debug:
+        msg: "Scaphandre built successfully."
+
+    - name: Move Scaphandre binary to /usr/local/bin
+      command: sudo mv {{ library_install_dir }}/scaphandre/target/release/scaphandre /usr/local/bin/
+
+    - name: Log Scaphandre binary move
+      debug:
+        msg: "Scaphandre binary moved to /usr/local/bin."
+
+    - name: Install Maven
+      apt:
+        name: maven
+        state: present
+      register: maven_install
+
+    - name: Initialize Maven wrapper
+      shell: mvn -N io.takari:maven:wrapper
+
+    - name: Build benchbase
+      shell: |
+        cd {{ project_directory }}/benchbase/
+        ./mvnw clean install -P postgres -DskipTests
+      register: benchbase_build
+
+    - name: Log benchbase build
+      debug:
+        msg: "Benchbase build completed with status: {{ benchbase_build.rc }}"
+
+    - name: Build core
+      shell: |
+        cd {{ project_directory }}/core
+        mvn clean install -P executable-jar
+      register: core_build
+
+    - name: Log core build
+      debug:
+        msg: "Core build completed with status: {{ core_build.rc }}"
+
+    - name: Configure database connection properties
+      lineinfile:
+        path: "{{ project_directory }}/core/src/main/resources/application.properties"
+        regexp: '^spring.datasource.url=.*'
+        line: "spring.datasource.url=jdbc:postgresql://localhost:{{ postgres_port }}/{{ database_name }}"
+        create: yes
+
+    - name: Configure database username
+      lineinfile:
+        path: "{{ project_directory }}/core/src/main/resources/application.properties"
+        regexp: '^spring.datasource.username=.*'
+        line: "spring.datasource.username=admin"
+        create: yes
+
+    - name: Configure database password
+      lineinfile:
+        path: "{{ project_directory }}/core/src/main/resources/application.properties"
+        regexp: '^spring.datasource.password=.*'
+        line: "spring.datasource.password={{ postgres_password }}"
+        create: yes
+
+    - name: Configure benchmark type
+      lineinfile:
+        path: "{{ project_directory }}/core/src/main/resources/application.properties"
+        regexp: '^benchmark.type=.*'
+        line: "benchmark.type={{ benchmark_type }}"
+        create: yes
+
+    - name: Configure scale factor
+      lineinfile:
+        path: "{{ project_directory }}/core/src/main/resources/application.properties"
+        regexp: '^benchmark.scale-factor=.*'
+        line: "benchmark.scale-factor={{ scale_factor }}"
+        create: yes
+
+
+
+    - name: Rebuild core with updated configuration
+      shell: |
+        cd {{ project_directory }}/core
+        mvn clean install -P executable-jar
+      register: core_rebuild
+
+    - name: Log core rebuild
+      debug:
+        msg: "Core rebuild completed with status: {{ core_rebuild.rc }}"
+
+    - name: Run setup-formula-config
+      shell: |
+        cd {{ project_directory }}/ansible-benchmark/powerAPI-intel
+        chmod +x setup-formula-config.sh
+        ./setup-formula-config.sh
+      become: yes
+      register: docker_compose_db
+
+    # ====================================
+    # Database Population Logic
+    # ====================================
+    
+    - name: Set dump filename based on benchmark configuration
+      set_fact:
+        dump_filename: "{{ benchmark_type | lower }}_sc_f_{{ scale_factor | replace('.', '_') }}.zip"
+        scale_factor_normalized: "{{ scale_factor | replace('.', '_') }}"
+
+    - name: Log dump configuration
+      debug:
+        msg: |
+          Database population configuration:
+          - Source: {{ database_source }}
+          - Dump filename: {{ dump_filename }}
+          - Dumps directory: {{ dumps_directory }}
+
+    - name: Check if dump file exists (when database_source is 'dumps')
+      stat:
+        path: "{{ dumps_directory }}/{{ dump_filename }}"
+      register: dump_file_check
+      when: database_source == "dumps"
+
+    - name: Log dump file availability
+      debug:
+        msg: "Dump file {{ dump_filename }} exists: {{ dump_file_check.stat.exists | default(false) }}"
+      when: database_source == "dumps"
+
+    - name: Create temporary directory for dump extraction
+      file:
+        path: /root/temp_dump_extract
+        state: directory
+        mode: '0755'
+      when: database_source == "dumps" and dump_file_check.stat.exists | default(false)
+
+    - name: Extract dump file
+      unarchive:
+        src: "{{ dumps_directory }}/{{ dump_filename }}"
+        dest: /root/temp_dump_extract
+        remote_src: yes
+      when: database_source == "dumps" and dump_file_check.stat.exists | default(false)
+      register: dump_extract
+
+    - name: Find SQL dump file in extracted directory
+      find:
+        paths: /root/temp_dump_extract
+        patterns: "*.sql"
+        recurse: yes
+      register: sql_files
+      when: database_source == "dumps" and dump_file_check.stat.exists | default(false)
+
+    - name: Load database from dump
+      shell: |
+        PGPASSWORD={{ postgres_password }} psql -h localhost -p {{ postgres_port }} -U admin -d {{ database_name }} -f {{ sql_files.files[0].path }}
+      when: database_source == "dumps" and dump_file_check.stat.exists | default(false) and sql_files.files | length > 0
+      register: dump_load_result
+
+    - name: Log successful dump load
+      debug:
+        msg: "Database successfully populated from dump file: {{ dump_filename }}"
+      when: database_source == "dumps" and dump_file_check.stat.exists | default(false) and dump_load_result is defined and dump_load_result.rc == 0
+
+    - name: Clean up temporary dump extraction directory
+      file:
+        path: /root/temp_dump_extract
+        state: absent
+      when: database_source == "dumps" and dump_file_check.stat.exists | default(false)
+
+    - name: Set dump_loaded flag
+      set_fact:
+        dump_loaded: "{{ database_source == 'dumps' and dump_file_check.stat.exists | default(false) and dump_load_result is defined and dump_load_result.rc == 0 }}"
+
+    - name: Run Java application to fulfill the DB with sample data (benchbase fallback)
+      shell: |
+        cd {{ project_directory }}/core
+        java -jar target/core-1.0-SNAPSHOT.jar > /root/core_server.log 2>&1
+      register: java_app_start
+      when: not (dump_loaded | default(false))
+
+    - name: Log database population method used
+      debug:
+        msg: |
+          Database population completed:
+          - Method: {{ 'Pre-made dump (' + dump_filename + ')' if dump_loaded | default(false) else 'Benchbase fulfillment' }}
+          - Benchmark Type: {{ benchmark_type }}
+          - Scale Factor: {{ scale_factor }}
+
+    - name: Start Scaphandre measurement on DB server
+      shell: |
+        nohup scaphandre json -t 3600 -s {{ scaphandre_timestep_s }} --containers -f /root/experiments_summary_dbserver.json &
+      async: 3600
+      poll: 0
+      register: scaphandre_task
+
+- name: Setup Node 2 (API Server)
+  hosts: node2
+  remote_user: root
+  vars:
+    api_container_name: spring-api
+    api_port: 8086
+    db_host: "{{ hostvars['node1'].ansible_host }}"
+    db_port: 5432
+    database_name: "{{ 'tpccdb' if benchmark_type == 'TPCC' else 'tpchdb' }}"
+    db_user: admin
+    db_password: password
+  tasks:
+    - name: Download Java 21
+      get_url:
+        url: https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.deb
+        dest: /root/jdk-21_linux-x64_bin.deb
+      register: java_download
+
+    - name: Install Java 21
+      apt:
+        deb: /root/jdk-21_linux-x64_bin.deb
+      register: java_install
+
+    - name: Install wget and ca-certificates
+      apt:
+        name: 
+          - wget
+          - ca-certificates
+        state: present
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Run apt-get update
+      command: apt-get update
+      changed_when: false
+
+    - name: Set installation directory for libraries
+      set_fact:
+        library_install_dir: /root/public
+
+    - name: Install podman-docker to {{ library_install_dir }}
+      apt:
+        name:
+          - podman-docker
+        state: present
+        install_recommends: no
+      environment:
+        DESTDIR: "{{ library_install_dir }}"
+
+    - name: Log installation of podman-docker
+      debug:
+        msg: "Podman-docker installed in {{ library_install_dir }}."
+
+    - name: Install docker.io to {{ library_install_dir }}
+      apt:
+        name:
+          - docker.io
+        state: present
+        install_recommends: no
+      environment:
+        DESTDIR: "{{ library_install_dir }}"
+
+    - name: Log installation of docker.io
+      debug:
+        msg: "Docker.io installed in {{ library_install_dir }}."
+
+    - name: Install docker-compose to {{ library_install_dir }}
+      apt:
+        name:
+          - docker-compose
+        state: present
+        install_recommends: no
+      environment:
+          DESTDIR: "{{ library_install_dir }}"
+
+    - name: Log installation of docker-compose
+      debug:
+        msg: "Docker-compose installed in {{ library_install_dir }}."
+
+    - name: Install Cargo and other dependencies to {{ library_install_dir }}
+      apt:
+        name:
+          - cargo
+          - pkg-config
+          - libssl-dev
+        state: present
+        install_recommends: no
+      environment:
+        DESTDIR: "{{ library_install_dir }}"
+
+    - name: Log installation of Cargo and dependencies
+      debug:
+        msg: "Cargo and other dependencies installed in {{ library_install_dir }}."
+
+    - name: Clone Scaphandre repo
+      git:
+        repo: https://github.com/hubblo-org/scaphandre.git
+        dest: "{{ library_install_dir }}/scaphandre"
+        update: no
+
+    - name: Log Scaphandre repo clone
+      debug:
+        msg: "Scaphandre repo cloned to {{ library_install_dir }}/scaphandre."
+
+    - name: Build Scaphandre
+      shell: |
+        cd {{ library_install_dir }}/scaphandre
+        cargo build --release
+
+    - name: Log Scaphandre build completion
+      debug:
+        msg: "Scaphandre built successfully."
+
+    - name: Move Scaphandre binary to /usr/local/bin
+      command: sudo mv {{ library_install_dir }}/scaphandre/target/release/scaphandre /usr/local/bin/
+
+    - name: Log Scaphandre binary move
+      debug:
+        msg: "Scaphandre binary moved to /usr/local/bin."
+
+    - name: Install Maven
+      apt:
+        name: maven
+        state: present
+
+    - name: Initialize Maven wrapper
+      shell: mvn -N io.takari:maven:wrapper
+
+    - name: Clone RestQFramework repository
+      git:
+        repo: "{{ github_repo_url }}"
+        dest: "{{ project_directory }}"
+        recursive: yes
+
+    - name: Run setup-formula-config and start docker compose for power monitoring
+      shell: |
+        cd {{ project_directory }}/ansible-benchmark/powerAPI-intel
+        chmod +x setup-formula-config.sh
+        ./setup-formula-config.sh
+      become: yes
+      register: docker_compose_power
+
+    - name: Build benchbase
+      shell: |
+        cd {{ project_directory }}/benchbase/
+        ./mvnw clean install -P postgres -DskipTests
+
+    - name: Build core
+      shell: |
+        cd {{ project_directory }}/core
+        mvn clean install -P simple-jar
+
+    - name: Modify application properties
+      lineinfile:
+        path: "{{ project_directory }}/api-http/src/main/resources/application.properties"
+        regexp: '^spring.datasource.url=.*'
+        line: "spring.datasource.url=jdbc:postgresql://{{ db_host }}:{{ db_port }}/{{ database_name }}"
+
+    - name: Modify Jakarta persistence URL
+      lineinfile:
+        path: "{{ project_directory }}/api-http/src/main/resources/application.properties"
+        regexp: '^jakarta.persistence.jdbc.url=.*'
+        line: "jakarta.persistence.jdbc.url=jdbc:postgresql://{{ db_host }}:{{ db_port }}/{{ database_name }}"
+
+    - name: Configure benchmark type in API
+      lineinfile:
+        path: "{{ project_directory }}/api-http/src/main/resources/application.properties"
+        regexp: '^benchmark.type=.*'
+        line: "benchmark.type={{ benchmark_type }}"
+
+    - name: Build API HTTP module with benchmark-specific profile
+      shell: |
+        cd {{ project_directory }}/api-http
+        mvn clean install -P {{ 'springboot-tpcc' if benchmark_type == 'TPCC' else 'springboot-tpch' }}
+
+    - name: Start Scaphandre measurement on API server
+      shell: |
+        nohup scaphandre json -t 3600 -s {{ scaphandre_timestep_s }} --containers -f /root/experiments_summary_apiserver.json &
+      async: 3600
+      poll: 0
+      register: scaphandre_task
+
+    - name: Create target directory for JAR file
+      file:
+        path: "{{ project_directory }}/ansible-benchmark/docker-api/target"
+        state: directory
+        mode: '0755'
+
+    - name: Copy built JAR file to docker-api directory
+      copy:
+        src: "{{ project_directory }}/api-http/target/api-http-1.0-SNAPSHOT-{{ benchmark_type | lower }}.jar"
+        dest: "{{ project_directory }}/ansible-benchmark/docker-api/target/api-http-1.0-SNAPSHOT.jar"
+        mode: '0644'
+        remote_src: yes
+
+    - name: Update docker-compose.yml with correct environment variables
+      lineinfile:
+        path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
+        regexp: '^      SPRING_DATASOURCE_URL:.*'
+        line: "      SPRING_DATASOURCE_URL: jdbc:postgresql://{{ db_host }}:{{ db_port }}/{{ database_name }}"
+      register: update_db_url
+
+    - name: Update docker-compose.yml with database username
+      lineinfile:
+        path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
+        regexp: '^      SPRING_DATASOURCE_USERNAME:.*'
+        line: "      SPRING_DATASOURCE_USERNAME: {{ db_user }}"
+      register: update_db_user
+
+    - name: Update docker-compose.yml with database password
+      lineinfile:
+        path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
+        regexp: '^      SPRING_DATASOURCE_PASSWORD:.*'
+        line: "      SPRING_DATASOURCE_PASSWORD: {{ db_password }}"
+      register: update_db_password
+
+    - name: Add benchmark type environment variable
+      lineinfile:
+        path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
+        regexp: '^      BENCHMARK_TYPE:.*'
+        line: "      BENCHMARK_TYPE: {{ benchmark_type }}"
+        insertafter: "SPRING_DATASOURCE_PASSWORD:"
+
+    - name: Start API server container
+      shell: |
+        cd {{ project_directory }}/ansible-benchmark/docker-api
+        docker-compose up -d
+      register: docker_compose_result
+      retries: 3
+      delay: 10
+      until: docker_compose_result is success
+      ignore_errors: true
+
+    - name: Wait for API server to be ready
+      wait_for:
+        host: 127.0.0.1
+        port: "{{ api_port }}"
+        delay: 5
+        timeout: 60
+        state: started
+
+    - name: Log API server container start
+      debug:
+        msg: "API server container is running on port {{ api_port }} with {{ benchmark_type }} benchmark"
+
+- name: Setup Node 3 (Benchmark Client)
+  hosts: node3
+  remote_user: root
+  vars:
+    api_port: 8086
+  tasks:
+    - name: Download Java 21
+      get_url:
+        url: https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.deb
+        dest: /root/jdk-21_linux-x64_bin.deb
+      register: java_download
+
+    - name: Install Java 21
+      apt:
+        deb: /root/jdk-21_linux-x64_bin.deb
+      register: java_install
+
+    - name: Install wget and ca-certificates
+      apt:
+        name: 
+          - wget
+          - ca-certificates
+        state: present
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install Maven
+      apt:
+        name: maven
+        state: present
+
+    - name: Initialize Maven wrapper
+      shell: mvn -N io.takari:maven:wrapper
+
+    - name: Clone RestQFramework repository
+      git:
+        repo: "{{ github_repo_url }}"
+        dest: "{{ project_directory }}"
+        recursive: yes
+
+    - name: Build benchbase
+      shell: |
+        cd {{ project_directory }}/benchbase/
+        ./mvnw clean install -P postgres -DskipTests
+
+    - name: Build core
+      shell: |
+        cd {{ project_directory }}/core
+        mvn clean install -P simple-jar
+
+    - name: Copy benchmark-config.xml to server
+      copy:
+        src: ./benchmark-config/benchmark-config.xml
+        dest: "{{ project_directory }}/api-http/src/main/resources/benchmark-config.xml"
+        mode: 0644
+      register: config_copy
+
+    - name: Log configuration file copy
+      debug:
+        msg: "Benchmark configuration file copied to server"
+
+    - name: Modify API port URL in ApiBenchmark.java
+      lineinfile:
+        path: "{{ project_directory }}/api-http/src/main/java/com/restq/api_http/Benchmark/ApiBenchmark.java"
+        regexp: '^    private static final String BASE_URL =.*'
+        line: "    private static final String BASE_URL = \"http://{{ hostvars['node2'].ansible_host }}:8086/api/{{ 'tpcc' if benchmark_type == 'TPCC' else 'reports' }}\";"
+
+    - name: Configure benchmark parameters in ApiBenchmark.java
+      lineinfile:
+        path: "{{ project_directory }}/api-http/src/main/java/com/restq/api_http/Benchmark/ApiBenchmark.java"
+        regexp: '^    private static final String BENCHMARK_TYPE =.*'
+        line: "    private static final String BENCHMARK_TYPE = \"{{ benchmark_type }}\";"
+        insertafter: "BASE_URL"
+
+    - name: Build Benchmark module
+      shell: |
+        cd {{ project_directory }}/api-http
+        mvn clean install -P benchmark-app
+
+    - name: Verify API server is accessible
+      wait_for:
+        host: "{{ hostvars['node2'].ansible_host }}"
+        port: "{{ api_port }}"
+        delay: 5
+        timeout: 60
+        state: started
+      delegate_to: "{{ hostvars['node2'].ansible_host }}"
+
+    - name: Run benchmark
+      shell: |
+        cd {{ project_directory }}/api-http
+        java -jar target/api-http-1.0-SNAPSHOT-jar-with-dependencies.jar > /root/benchmark_client.log 2>&1
+          
+- name: Stopping Scaphandre measurement on Node 1
+  hosts: node1
+  remote_user: root
+  tasks:
+    - name: Stop Scaphandre measurement on Node 1
+      shell: |
+        pkill -f "scaphandre json -t 3600 -s {{ scaphandre_timestep_s }}"
+      ignore_errors: true
+
+    - name: Log Scaphandre stop on Node 1
+      debug:
+        msg: "Scaphandre measurement stopped on DB server."
+
+- name: Stopping Scaphandre measurement on Node 2
+  hosts: node2
+  remote_user: root
+  tasks:
+    - name: Stop Scaphandre measurement on Node 2
+      shell: |
+        pkill -f "scaphandre json -t 3600 -s {{ scaphandre_timestep_s }}"
+      ignore_errors: true
+
+    - name: Log Scaphandre stop on Node 2
+      debug:
+        msg: "Scaphandre measurement stopped on API server."
+
+- name: Fetch results from Node 1
+  hosts: node1
+  remote_user: root
+  tasks:
+    - name: Fetch results to controller
+      fetch:
+        src: /root/experiments_summary_dbserver.json
+        dest: /tmp/experiments_summary_dbserver.json
+        flat: yes
+
+- name: Fetch results from Node 2
+  hosts: node2
+  remote_user: root
+  tasks:
+    - name: Fetch results to controller
+      fetch:
+        src: /root/experiments_summary_apiserver.json
+        dest: /tmp/experiments_summary_apiserver.json
+        flat: yes
+
+    - name: Create results directory on controller
+      local_action:
+        module: file
+        path: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}"
+        state: directory
+        mode: '0755'
+      run_once: true
+      
+- name: Install MongoDB tools on Node1
+  hosts: node1
+  remote_user: root
+  tasks:
+    - name: Import MongoDB public key
+      apt_key:
+        url: https://www.mongodb.org/static/pgp/server-6.0.asc
+        state: present
+
+    - name: Add MongoDB repository
+      apt_repository:
+        repo: "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/6.0 multiverse"
+        state: present
+        filename: mongodb-org-6.0
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install MongoDB tools
+      apt:
+        name: mongodb-database-tools
+        state: present
+
+- name: Install MongoDB tools on Node2
+  hosts: node2
+  remote_user: root
+  tasks:
+    - name: Import MongoDB public key
+      apt_key:
+        url: https://www.mongodb.org/static/pgp/server-6.0.asc
+        state: present
+
+    - name: Add MongoDB repository
+      apt_repository:
+        repo: "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/6.0 multiverse"
+        state: present
+        filename: mongodb-org-6.0
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install MongoDB tools
+      apt:
+        name: mongodb-database-tools
+        state: present
+
+- name: Dump MongoDB db_power on DB server (Node1) and fetch dump
+  hosts: node1
+  remote_user: root
+  tasks:
+    - name: Dump MongoDB db_power on DB server
+      shell: docker exec mongodb mongoexport --db db_power --collection power_reports --out /root/mongodump-DB-server.json --jsonArray
+      register: mongodump_db
+    
+    - name: Download JSON file from docker container to node 
+      shell: docker cp mongodb:/root/mongodump-DB-server.json /root/mongodump-DB-server.json
+
+    - name: Fetch MongoDB dump from DB server to controller
+      fetch:
+        src: /root/mongodump-DB-server.json
+        dest: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/mongodump-DB-server.json"
+        flat: yes
+
+    - name: Log DB server dump download
+      debug:
+        msg: "MongoDB dump from DB server downloaded to ~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/mongodump-DB-server.json"
+
+- name: Dump MongoDB db_power on API server (Node2) and fetch dump
+  hosts: node2
+  remote_user: root
+  tasks:
+    - name: Dump MongoDB db_power on API server
+      shell: docker exec mongodb mongoexport --db db_power --collection power_reports --out /root/mongodump-API-server.json --jsonArray
+      register: mongodump_api
+
+    - name: Download JSON file from docker container to node 
+      shell: docker cp mongodb:/root/mongodump-API-server.json /root/mongodump-API-server.json
+
+    - name: Fetch MongoDB dump from API server to controller
+      fetch:
+        src: /root/mongodump-API-server.json
+        dest: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/mongodump-API-server.json"
+        flat: yes
+
+    - name: Log API server dump download
+      debug:
+        msg: "MongoDB dump from API server downloaded to ~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/mongodump-API-server.json"
+
+- name: Fetch API Server Application Logs
+  hosts: node2
+  remote_user: root
+  tasks:
+    - name: Get logs from API server container
+      shell: docker logs spring-api > /root/api_server_app.log 2>&1
+      register: docker_logs_api
+      ignore_errors: true
+      
+    - name: Fetch API server application logs
+      fetch:
+        src: /root/api_server_app.log
+        dest: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/api_server_app.log"
+        flat: yes
+        
+    - name: Log API server app log download
+      debug:
+        msg: "API server application logs downloaded to ~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/api_server_app.log"
+
+- name: Fetch log files from Node 3 (Benchmark client)
+  hosts: node3
+  remote_user: root
+  tasks:
+    - name: Fetch benchmark client logs
+      fetch:
+        src: /root/benchmark_client.log
+        dest: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/benchmark_client.log"
+        flat: yes
+
+    - name: Log benchmark client log download
+      debug:
+        msg: "Benchmark client logs downloaded to your local machine at ~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/benchmark_client.log"
+    
+    - name: Fetch system logs
+      fetch:
+        src: /var/log/syslog
+        dest: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/node3_syslog.log"
+        flat: yes
+      ignore_errors: true
+
+- name: Get DB Container ID from Node 1
+  hosts: node1
+  remote_user: root
+  tasks:
+    - name: Get DB container ID
+      shell: docker ps -q -f name=db-docker-container
+      register: db_container_id_result
+      changed_when: false
+      failed_when: false # Don't fail if container not found
+
+    - name: Store DB Container ID as fact
+      set_fact:
+        db_container_id_fact: "{{ db_container_id_result.stdout }}"
+        cacheable: yes
+
+- name: Get API Container ID from Node 2
+  hosts: node2
+  remote_user: root
+  tasks:
+    - name: Get API container ID
+      shell: docker ps -q -f name=spring-api
+      register: api_container_id_result
+      changed_when: false
+      failed_when: false # Don't fail if container not found
+
+    - name: Store API Container ID as fact
+      set_fact:
+        api_container_id_fact: "{{ api_container_id_result.stdout }}"
+        cacheable: yes
+
+- name: Aggregate Results and Fetch Files from Node 3
+  hosts: node3
+  remote_user: root
+  tasks:
+    - name: Create directory for fixed JSON files
+      file:
+        path: /root/fixed_json_files
+        state: directory
+        mode: '0755'
+
+    - name: Copy DB server results from controller to Node 3
+      copy:
+        src: /tmp/experiments_summary_dbserver.json
+        dest: /root/fixed_json_files/experiments_summary_dbserver.json
+
+    - name: Copy API server results from controller to Node 3
+      copy:
+        src: /tmp/experiments_summary_apiserver.json
+        dest: /root/fixed_json_files/experiments_summary_apiserver.json
+
+    - name: Compile JsonFixer utility
+      shell: |
+        cd {{ project_directory }}/api-http
+        javac -cp target/api-http-1.0-SNAPSHOT-jar-with-dependencies.jar src/main/java/com/restq/utils/JsonFixer.java
+      register: fixer_compile_output
+      changed_when: "'Compiled' in fixer_compile_output.stdout" # Heuristic change detection
+
+    - name: Log JsonFixer compilation
+      debug:
+        msg: "JsonFixer compilation output: {{ fixer_compile_output.stdout_lines }}"
+
+    - name: Find benchmark results files
+      find:
+        paths: "{{ project_directory }}/api-http"
+        patterns: "benchmark_results_*.json"
+        recurse: yes
+      register: benchmark_files
+
+    - name: Copy benchmark results to fixed json directory
+      copy:
+        src: "{{ item.path }}"
+        dest: /root/fixed_json_files/
+        remote_src: yes
+      with_items: "{{ benchmark_files.files }}"
+
+    - name: Create experiment info JSON
+      copy:
+        content: |
+          {
+            "benchmark_type": "{{ benchmark_type }}",
+            "scale_factor": "{{ scale_factor }}",
+            "experiment_duration": "{{ experiment_duration }}",
+            "timestamp": "{{ timestamp }}",
+            "db_container_id": "{{ hostvars['node1'].db_container_id_fact | default('') }}",
+            "api_container_id": "{{ hostvars['node2'].api_container_id_fact | default('') }}"
+          }
+        dest: /root/fixed_json_files/experiment_info.json
+        mode: '0644'
+
+    - name: Create results directory on controller
+      local_action:
+        module: file
+        path: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}"
+        state: directory
+        mode: '0755'
+      run_once: true
+
+    - name: Fetch experiment info file
+      fetch:
+        src: /root/fixed_json_files/experiment_info.json
+        dest: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/experiment_info.json"
+        flat: yes
+        
+    - name: Build and run JSON combiner
+      shell: |
+        cd {{ project_directory }}/api-http
+        javac -cp {{ project_directory }}/api-http/target/api-http-1.0-SNAPSHOT-jar-with-dependencies.jar src/main/java/com/restq/utils/JsonCombiner.java
+        java -cp {{ project_directory }}/api-http/target/api-http-1.0-SNAPSHOT-jar-with-dependencies.jar:src/main/java com.restq.utils.JsonCombiner /root/fixed_json_files /root/combined_results_{{ benchmark_type }}_{{ timestamp }}.json
+      register: combiner_output
+      
+    - name: Log combiner output
+      debug:
+        msg: "{{ combiner_output.stdout_lines }}"
+        
+    - name: Fetch combined results file
+      fetch:
+        src: /root/combined_results_{{ benchmark_type }}_{{ timestamp }}.json
+        dest: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/combined_results.json"
+        flat: yes
+        
+    - name: Log results download
+      debug:
+        msg: "Combined {{ benchmark_type }} benchmark results downloaded to your local machine at ~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/combined_results.json" 

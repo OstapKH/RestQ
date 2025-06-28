@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<tpcc-config>
+    <!-- Number of warehouses (main scaling factor) -->
+    <warehouses>2</warehouses>
+    
+    <!-- Number of terminals/concurrent users -->
+    <terminals>4</terminals>
+    
+    <!-- Duration of benchmark in seconds -->
+    <duration-seconds>60</duration-seconds>
+</tpcc-config> 

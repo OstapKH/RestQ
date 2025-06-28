@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<benchmark-config>
+<pauseBetweenExperiments-ms>5000</pauseBetweenExperiments-ms>
+
+    <endpoints>
+        <endpoint name="pricing-summary"/>
+        <endpoint name="supplier-part-info"/>
+        <endpoint name="order-revenue-info"/>
+        <endpoint name="order-priority-count"/>
+        <endpoint name="local-supplier-volume"/>
+        <endpoint name="revenue-increase"/>
+    </endpoints>
+
+<experiment>
+    <experiment_name>EXP_1_con_1_1_30s_5runs</experiment_name>
+    <runs>5</runs>
+    <pause-between-runs-ms>10000</pause-between-runs-ms>
+    <connections>1</connections>
+    <requests-per-second>1</requests-per-second>
+    <duration-seconds>5</duration-seconds>
+    
+    <probabilities>
+        <probability endpoint="pricing-summary">0.0</probability>
+        <probability endpoint="supplier-part-info">0.0</probability>
+        <probability endpoint="order-revenue-info">0.0</probability>
+        <probability endpoint="order-priority-count">1.0</probability>
+        <probability endpoint="local-supplier-volume">0.0</probability>
+        <probability endpoint="revenue-increase">0.0</probability>
+    </probabilities>
+</experiment>
+
+<experiment>
+    <experiment_name>EXP_2_con_1_10_30s_5runs</experiment_name>
+    <runs>5</runs>
+    <pause-between-runs-ms>10000</pause-between-runs-ms>
+    <connections>1</connections>
+    <requests-per-second>10</requests-per-second>
+    <duration-seconds>5</duration-seconds>
+    
+    <probabilities>
+        <probability endpoint="pricing-summary">0.0</probability>
+        <probability endpoint="supplier-part-info">0.0</probability>
+        <probability endpoint="order-revenue-info">0.0</probability>
+        <probability endpoint="order-priority-count">1.0</probability>
+        <probability endpoint="local-supplier-volume">0.0</probability>
+        <probability endpoint="revenue-increase">0.0</probability>
+    </probabilities>
+</experiment>
+
+<experiment>
+    <experiment_name>EXP_3_con_1_20_30s_5runs</experiment_name>
+    <runs>5</runs>
+    <pause-between-runs-ms>10000</pause-between-runs-ms>
+    <connections>1</connections>
+    <requests-per-second>20</requests-per-second>
+    <duration-seconds>5</duration-seconds>
+    
+    <probabilities>
+        <probability endpoint="pricing-summary">0.0</probability>
+        <probability endpoint="supplier-part-info">0.0</probability>
+        <probability endpoint="order-revenue-info">0.0</probability>
+        <probability endpoint="order-priority-count">1.0</probability>
+        <probability endpoint="local-supplier-volume">0.0</probability>
+        <probability endpoint="revenue-increase">0.0</probability>
+    </probabilities>
+</experiment>
+
+<experiment>
+    <experiment_name>EXP_4_con_1_50_30s_5runs</experiment_name>
+    <runs>5</runs>
+    <pause-between-runs-ms>10000</pause-between-runs-ms>
+    <connections>1</connections>
+    <requests-per-second>50</requests-per-second>
+    <duration-seconds>5</duration-seconds>
+    
+    <probabilities>
+        <probability endpoint="pricing-summary">0.0</probability>
+        <probability endpoint="supplier-part-info">0.0</probability>
+        <probability endpoint="order-revenue-info">0.0</probability>
+        <probability endpoint="order-priority-count">1.0</probability>
+        <probability endpoint="local-supplier-volume">0.0</probability>
+        <probability endpoint="revenue-increase">0.0</probability>
+    </probabilities>
+</experiment>
+
+</benchmark-config> 

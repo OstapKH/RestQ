@@ -1,0 +1,48 @@
+all:
+  vars:
+    # ====================================
+    # Deployment Mode Configuration
+    # ====================================
+    deployment_mode: localhost  # Run everything on current laptop
+    
+    # ====================================
+    # Localhost Configuration
+    # ====================================
+    localhost_ports:
+      postgres_port: 5432
+      api_port: 8086
+      mongodb_port: 27017
+    
+    # ====================================
+    # Power Monitoring Configuration
+    # ====================================
+    scaphandre_timestep_s: 1 # Timestep in seconds for power monitoring
+    
+    # ====================================
+    # Benchmark Configuration 
+    # ====================================
+    benchmark_type: TPCC  # Options: TPCC, TPCH
+    scale_factor: "1.0"   # TPCC: warehouses, TPCH: data multiplier
+    
+    # ====================================
+    # Experiment Tracking
+    # ====================================
+    experiment_duration: '02:00:00'
+    timestamp: "{{ ansible_date_time.iso8601 }}"
+    
+
+  hosts:
+    node1:
+      ansible_host: localhost
+      ansible_user: "{{ ansible_user | default(ansible_env.USER) }}"
+      ansible_connection: local
+        
+    node2:
+      ansible_host: localhost
+      ansible_user: "{{ ansible_user | default(ansible_env.USER) }}"
+      ansible_connection: local
+        
+    node3:
+      ansible_host: localhost
+      ansible_user: "{{ ansible_user | default(ansible_env.USER) }}"
+ 
