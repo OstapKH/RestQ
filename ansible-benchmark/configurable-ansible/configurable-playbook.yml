@@ -777,14 +777,14 @@
 
     - name: Copy benchmark-config.xml to server
       copy:
-        src: ./benchmark-config/benchmark-config.xml
-        dest: "{{ project_directory }}/api-http/src/main/resources/benchmark-config.xml"
-        mode: 0644
-      register: config_copy
+        src: "../benchmark-config/benchmark-config.xml"
+        dest: "{{ project_directory }}/benchbase/benchmark-config.xml"
 
-    - name: Log configuration file copy
-      debug:
-        msg: "Benchmark configuration file copied to server"
+    - name: Update benchmark configuration file
+      lineinfile:
+        path: "{{ project_directory }}/benchbase/benchmark-config.xml"
+        regexp: '^    <benchmark-config>'
+        line: "    <benchmark-config>"
 
     - name: Modify API port URL in ApiBenchmark.java
       lineinfile:
