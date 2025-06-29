@@ -1,6 +1,7 @@
 package com.restq.api_http.Repositories.tpcc;
 
 import com.restq.core.Models.tpcc.Warehouse.Warehouse;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Repository;
 import java.math.BigDecimal;
 
 @Repository
+@ConditionalOnProperty(name = "benchmark.type", havingValue = "TPCC")
 public interface WarehouseRepository extends JpaRepository<Warehouse, Integer> {
 
     // For Payment transaction - get warehouse tax rate

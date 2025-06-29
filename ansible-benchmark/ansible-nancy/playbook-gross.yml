@@ -99,19 +99,19 @@
       debug:
         msg: "Timestamp: {{ timestamp }}"
 
-    - name: Download Java 21
+    - name: Download Java 23
       get_url:
-        url: https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.deb
-        dest: /root/jdk-21_linux-x64_bin.deb
+        url: https://download.oracle.com/java/23/archive/jdk-23_linux-x64_bin.deb
+        dest: /root/jdk-23_linux-x64_bin.deb
       register: java_download
 
     - name: Log Java download
       debug:
         msg: "Java downloaded: {{ java_download.dest }}"
 
-    - name: Install Java 21
+    - name: Install Java 23
       apt:
-        deb: /root/jdk-21_linux-x64_bin.deb
+        deb: /root/jdk-23_linux-x64_bin.deb
       register: java_install
 
     - name: Log Java installation
@@ -326,23 +326,28 @@
     db_user: admin
     db_password: password
   tasks:
-    - name: Download Java 21
+    - name: Print the timestamp from the inventory
+      debug:
+        msg: "Timestamp: {{ timestamp }}"
+
+    - name: Download Java 23
       get_url:
-        url: https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.deb
-        dest: /root/jdk-21_linux-x64_bin.deb
+        url: https://download.oracle.com/java/23/archive/jdk-23_linux-x64_bin.deb
+        dest: /root/jdk-23_linux-x64_bin.deb
       register: java_download
 
-    - name: Install Java 21
+    - name: Log Java download
+      debug:
+        msg: "Java downloaded: {{ java_download.dest }}"
+
+    - name: Install Java 23
       apt:
-        deb: /root/jdk-21_linux-x64_bin.deb
+        deb: /root/jdk-23_linux-x64_bin.deb
       register: java_install
 
-    - name: Install wget and ca-certificates
-      apt:
-        name: 
-          - wget
-          - ca-certificates
-        state: present
+    - name: Log Java installation
+      debug:
+        msg: "Java installation completed with status: {{ java_install.changed }}"
 
     - name: Update apt cache
       apt:
@@ -554,23 +559,28 @@
   vars:
     api_port: 8086
   tasks:
-    - name: Download Java 21
+    - name: Print the timestamp from the inventory
+      debug:
+        msg: "Timestamp: {{ timestamp }}"
+
+    - name: Download Java 23
       get_url:
-        url: https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.deb
-        dest: /root/jdk-21_linux-x64_bin.deb
+        url: https://download.oracle.com/java/23/archive/jdk-23_linux-x64_bin.deb
+        dest: /root/jdk-23_linux-x64_bin.deb
       register: java_download
 
-    - name: Install Java 21
+    - name: Log Java download
+      debug:
+        msg: "Java downloaded: {{ java_download.dest }}"
+
+    - name: Install Java 23
       apt:
-        deb: /root/jdk-21_linux-x64_bin.deb
+        deb: /root/jdk-23_linux-x64_bin.deb
       register: java_install
 
-    - name: Install wget and ca-certificates
-      apt:
-        name: 
-          - wget
-          - ca-certificates
-        state: present
+    - name: Log Java installation
+      debug:
+        msg: "Java installation completed with status: {{ java_install.changed }}"
 
     - name: Update apt cache
       apt:

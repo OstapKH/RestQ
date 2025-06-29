@@ -11,6 +11,7 @@ import com.restq.core.Models.tpcc.OrderLine.OrderLine;
 import com.restq.core.Models.tpcc.Warehouse.Warehouse;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Service
+@ConditionalOnProperty(name = "benchmark.type", havingValue = "TPCC")
 public class TransactionService {
 
     @Autowired
