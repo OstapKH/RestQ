@@ -843,6 +843,23 @@
       debug:
         msg: "Scaphandre measurement stopped on API server."
 
+- name: Finalise global timestamp (just before result collection)
+  hosts: localhost
+  gather_facts: false
+  run_once: true
+  tasks:
+    - name: Generate unified timestamp on controller
+      set_fact:
+        timestamp: "{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
+
+    - name: Propagate timestamp to every host
+      set_fact:
+        timestamp: "{{ hostvars['localhost'].timestamp }}"
+      delegate_to: "{{ item }}"
+      delegate_facts: true
+      loop: "{{ groups['all'] }}"
+      run_once: true
+
 - name: Fetch results from Node 1
   hosts: node1
   remote_user: root

@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import os
 from datetime import datetime, timedelta, timezone
-import pytz  # For timezone handling
+import pytz
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -23,33 +23,26 @@ class ExperimentVisualizer:
         self.mongodb_data = None
         self.mongodb_api_data = None
         self.mongodb_db_data = None
-        self.api_container_id = None # Add instance variable for API container ID
-        self.db_container_id = None  # Add instance variable for DB container ID
-        # Use pytz for proper timezone handling
-        self.display_timezone = pytz.timezone('Europe/Helsinki')  # EET timezone
+        self.api_container_id = None
+        self.db_container_id = None
+        self.display_timezone = pytz.timezone('Europe/Helsinki')
         
-        # Variables to control host energy visibility
         self.show_host_api_var = tk.BooleanVar(value=True)
         self.show_host_db_var = tk.BooleanVar(value=True)
         
-        # Variables to control scaphandre energy visibility
         self.show_scaphandre_api_var = tk.BooleanVar(value=True)
         self.show_scaphandre_db_var = tk.BooleanVar(value=True)
         
-        # Current tab state
-        self.current_tab = "plot"  # "plot" or "info"
+        self.current_tab = "plot"
         
-        # Set up main frame
         self.main_frame = ttk.Frame(root)
         self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Set up the UI components - pack bottom controls first to ensure they're visible
         self.setup_menu()
         self.setup_top_controls()
-        self.setup_bottom_controls()  # Pack bottom controls BEFORE content area
+        self.setup_bottom_controls()
         self.setup_main_content_area()
         
-        # Status bar
         self.status_var = tk.StringVar()
         self.status_var.set("Ready. Please load a data file.")
         self.status_bar = ttk.Label(root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
@@ -74,11 +67,9 @@ class ExperimentVisualizer:
         top_frame = ttk.Frame(self.main_frame)
         top_frame.pack(fill=tk.X, pady=(0, 10))
         
-        # Tab buttons row
         tab_frame = ttk.Frame(top_frame)
         tab_frame.pack(fill=tk.X, pady=(0, 10))
         
-        # Create tab buttons
         style = ttk.Style()
         style.configure('Tab.TButton', font=('Arial', 10, 'bold'))
         
@@ -92,12 +83,10 @@ class ExperimentVisualizer:
                                          style='Tab.TButton')
         self.info_tab_button.pack(side=tk.LEFT, padx=(0, 20))
         
-        # Load Data button
         style.configure('Big.TButton', font=('Arial', 11, 'bold'))
         load_button = ttk.Button(tab_frame, text="Load Data", command=self.load_data, style='Big.TButton')
         load_button.pack(side=tk.RIGHT)
         
-        # Experiment selection row (always visible)
         exp_frame = ttk.Frame(top_frame)
         exp_frame.pack(fill=tk.X, pady=(0, 5))
         
@@ -107,37 +96,29 @@ class ExperimentVisualizer:
         self.experiment_selector.pack(side=tk.LEFT, padx=5)
         self.experiment_selector.bind("<<ComboboxSelected>>", self.on_experiment_selected)
         
-        # Refresh button
         refresh_button = ttk.Button(exp_frame, text="Refresh", command=self.force_plot_update)
         refresh_button.pack(side=tk.LEFT, padx=5)
         
-        # Update tab button appearance
         self.update_tab_buttons()
     
     def setup_main_content_area(self):
         """Setup the main content area that switches between plot and experiment info"""
         self.content_frame = ttk.Frame(self.main_frame)
-        # Don't expand fully - leave room for bottom controls
         self.content_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 0))
         
-        # Create plot frame
         self.setup_plot_frame()
         
-        # Create experiment info frame
         self.setup_experiment_info_frame()
         
-        # Show the default tab
         self.switch_tab("plot")
     
     def setup_plot_frame(self):
         """Setup the plot visualization frame"""
         self.plot_frame = ttk.Frame(self.content_frame)
         
-        # MongoDB data selection frame - more compact
         mongodb_frame = ttk.LabelFrame(self.plot_frame, text="PowerAPI Energy Data")
         mongodb_frame.pack(fill=tk.X, padx=5, pady=2)
         
-        # MongoDB API server data
         api_frame = ttk.Frame(mongodb_frame)
         api_frame.pack(fill=tk.X, padx=3, pady=2)
         
@@ -149,13 +130,11 @@ class ExperimentVisualizer:
         ttk.Button(api_frame, text="Browse", 
                   command=lambda: self._browse_mongodb_file("api")).pack(side=tk.LEFT, padx=3)
         
-        # MongoDB API target service selection
         self.mongodb_api_target_var = tk.StringVar()
         self.mongodb_api_target_combo = ttk.Combobox(api_frame, textvariable=self.mongodb_api_target_var, 
                                                     state="readonly", width=25)
         self.mongodb_api_target_combo.pack(side=tk.LEFT, padx=3)
         
-        # MongoDB DB server data
         db_frame = ttk.Frame(mongodb_frame)
         db_frame.pack(fill=tk.X, padx=3, pady=2)
         
@@ -167,22 +146,18 @@ class ExperimentVisualizer:
         ttk.Button(db_frame, text="Browse", 
                   command=lambda: self._browse_mongodb_file("db")).pack(side=tk.LEFT, padx=3)
         
-        # MongoDB DB target service selection
         self.mongodb_db_target_var = tk.StringVar()
         self.mongodb_db_target_combo = ttk.Combobox(db_frame, textvariable=self.mongodb_db_target_var, 
                                                    state="readonly", width=25)
         self.mongodb_db_target_combo.pack(side=tk.LEFT, padx=3)
         
-        # Plot area - reduced padding to save space
         plot_area_frame = ttk.Frame(self.plot_frame)
         plot_area_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Create the matplotlib figure and canvas - reduce size to leave room for controls
         self.fig = Figure(figsize=(8, 4), dpi=100)
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_area_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
-        # Add matplotlib toolbar for zoom, pan, save, etc.
         toolbar_frame = ttk.Frame(plot_area_frame)
         toolbar_frame.pack(fill=tk.X)
         self.toolbar = NavigationToolbar2Tk(self.canvas, toolbar_frame)
@@ -192,33 +167,26 @@ class ExperimentVisualizer:
         """Setup the experiment information frame"""
         self.info_frame = ttk.Frame(self.content_frame)
         
-        # Title
         ttk.Label(self.info_frame, text="Experiment Details", font=("Arial", 14, "bold")).pack(pady=10)
         
-        # Scrollable frame for details
         frame_canvas = ttk.Frame(self.info_frame)
         frame_canvas.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         canvas = tk.Canvas(frame_canvas)
-        self.details_frame = ttk.Frame(canvas) # Frame that holds the details
+        self.details_frame = ttk.Frame(canvas)
         
-        # Vertical Scrollbar
         v_scrollbar = ttk.Scrollbar(frame_canvas, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=v_scrollbar.set)
         
-        # Horizontal Scrollbar
         h_scrollbar = ttk.Scrollbar(frame_canvas, orient="horizontal", command=canvas.xview)
         canvas.configure(xscrollcommand=h_scrollbar.set)
         
-        # Packing order:
         v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
-        # Create window in canvas for details_frame
         canvas_frame = canvas.create_window((0, 0), window=self.details_frame, anchor="nw")
         
-        # Update scrollregion when details_frame (content) size changes
         def configure_canvas(event):
             canvas.configure(scrollregion=canvas.bbox("all"))
         
@@ -226,31 +194,23 @@ class ExperimentVisualizer:
     
     def setup_bottom_controls(self):
         """Setup the bottom controls that are always visible"""
-        # Create a frame for bottom controls - use pack side=BOTTOM to ensure it's always visible
         bottom_frame = ttk.LabelFrame(self.main_frame, text="Plot Controls", relief=tk.RAISED, borderwidth=2)
         bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(5, 5))
-        bottom_frame.configure(height=100)  # Force minimum height
+        bottom_frame.configure(height=100)
         
-        # Create a simple frame for controls 
         controls_frame = ttk.Frame(bottom_frame)
         controls_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        # If we need scrolling later, we can wrap this in a canvas, but for now keep it simple
         scrollable_control_frame = controls_frame
         
-        # Create two rows of controls for better layout
-        # First row - main controls
         row1_frame = ttk.Frame(scrollable_control_frame)
         row1_frame.pack(fill=tk.X, pady=2)
         
-        # Second row - additional controls
         row2_frame = ttk.Frame(scrollable_control_frame)
         row2_frame.pack(fill=tk.X, pady=2)
         
-        # Row 1 controls
         ttk.Button(row1_frame, text="Refresh Plot", command=self.force_plot_update).pack(side=tk.LEFT, padx=3)
         
-        # Plot type selection
         ttk.Label(row1_frame, text="Plot Type:").pack(side=tk.LEFT, padx=(10, 3))
         self.plot_type_var = tk.StringVar(value="Line")
         plot_type_combo = ttk.Combobox(row1_frame, textvariable=self.plot_type_var, 
@@ -258,7 +218,6 @@ class ExperimentVisualizer:
         plot_type_combo.pack(side=tk.LEFT, padx=3)
         plot_type_combo.bind("<<ComboboxSelected>>", lambda e: self.force_plot_update())
         
-        # Plot data selection
         ttk.Label(row1_frame, text="Data Source:").pack(side=tk.LEFT, padx=(10, 3))
         self.data_source_var = tk.StringVar(value="Energy")
         data_source_combo = ttk.Combobox(row1_frame, textvariable=self.data_source_var, 
@@ -266,8 +225,6 @@ class ExperimentVisualizer:
         data_source_combo.pack(side=tk.LEFT, padx=3)
         data_source_combo.bind("<<ComboboxSelected>>", lambda e: self.force_plot_update())
         
-        # Row 2 controls
-        # Accumulation mode selection
         ttk.Label(row2_frame, text="Accumulation:").pack(side=tk.LEFT, padx=3)
         self.accumulation_var = tk.StringVar(value="Simple")
         self.accumulation_combo = ttk.Combobox(row2_frame, textvariable=self.accumulation_var, 
@@ -275,17 +232,14 @@ class ExperimentVisualizer:
         self.accumulation_combo.pack(side=tk.LEFT, padx=3)
         self.accumulation_combo.bind("<<ComboboxSelected>>", lambda e: self.force_plot_update())
         
-        # Initialize accumulation options based on default settings
         self.update_accumulation_options()
         
-        # Window size for accumulation (ms)
         ttk.Label(row2_frame, text="Window Size (ms):").pack(side=tk.LEFT, padx=(10, 3))
         self.window_size_var = tk.StringVar(value="100")
         window_size_entry = ttk.Entry(row2_frame, textvariable=self.window_size_var, width=6)
         window_size_entry.pack(side=tk.LEFT, padx=3)
         window_size_entry.bind("<Return>", lambda e: self.force_plot_update())
         
-        # Checkboxes for energy visibility
         ttk.Checkbutton(row2_frame, text="Show Scaphandre API", 
                        variable=self.show_scaphandre_api_var, command=self.force_plot_update).pack(side=tk.LEFT, padx=(10, 3))
         ttk.Checkbutton(row2_frame, text="Show Scaphandre DB", 
@@ -299,35 +253,27 @@ class ExperimentVisualizer:
         """Switch between plot and experiment info tabs"""
         self.current_tab = tab_name
         
-        # Hide all frames first
         self.plot_frame.pack_forget()
         self.info_frame.pack_forget()
         
-        # Show the selected frame
         if tab_name == "plot":
             self.plot_frame.pack(fill=tk.BOTH, expand=True)
         elif tab_name == "info":
             self.info_frame.pack(fill=tk.BOTH, expand=True)
-            # Refresh experiment info when switching to info tab
             self.refresh_experiment_info()
         
-        # Update tab button appearance
         self.update_tab_buttons()
     
     def update_tab_buttons(self):
         """Update the appearance of tab buttons to show which one is active"""
-        # Create styles for active and inactive tabs
         style = ttk.Style()
         
-        # Configure styles for tab buttons
         style.configure('TabActive.TButton', font=('Arial', 10, 'bold'), foreground='blue')
         style.configure('TabInactive.TButton', font=('Arial', 10, 'normal'), foreground='black')
         
-        # Reset both buttons to inactive style
         self.plot_tab_button.configure(style='TabInactive.TButton')
         self.info_tab_button.configure(style='TabInactive.TButton')
         
-        # Highlight the active tab
         if self.current_tab == "plot":
             self.plot_tab_button.configure(style='TabActive.TButton')
         elif self.current_tab == "info":
@@ -342,13 +288,11 @@ class ExperimentVisualizer:
         """Reset the plot view to default - Placeholder for future implementation"""
         self.status_var.set("Plot view reset functionality will be implemented in the future")
 
-    def setup_left_panel(self):
-        # This method is no longer needed with the new tab structure
-        pass
+    # def setup_left_panel(self):
+    #     pass
 
-    def setup_right_panel(self):
-        # This method is no longer needed with the new tab structure
-        pass
+    # def setup_right_panel(self):
+    #     pass
 
     def load_data(self):
         file_path = filedialog.askopenfilename(
@@ -373,42 +317,19 @@ class ExperimentVisualizer:
             else:
                  print("Loaded data is not a dictionary.") # DEBUG
                  
-            # Define the expected keys
-            # We absolutely need benchmark_results, but energy data is optional -> REVERTING: Making energy keys required again
-            # required_keys = ["benchmark_results"]
-            # optional_keys = ["api_server_energy", "db_server_energy"]
             expected_keys = ["api_server_energy", "db_server_energy", "benchmark_results"]
-            
-            # Check for required keys
-            # missing_required = [key for key in required_keys if key not in self.data]
-            # if missing_required:
-            #     print(f"ERROR: The file is missing the following required top-level keys: {missing_required}") # DEBUG
-            #     messagebox.showerror("Error", f"The file is missing required data: {', '.join(missing_required)}")
-            #     self.data = None # Clear invalid data
-            #     self.status_var.set("Error: Missing required data.")
-            #     return
-            #     
-            # # Check for optional keys and warn if missing
-            # missing_optional = [key for key in optional_keys if key not in self.data]
-            # if missing_optional:
-            #      print(f"WARNING: The file is missing the following optional top-level keys: {missing_optional}. Energy plots may be empty.") # DEBUG
-            #      self.status_var.set(f"Warning: Missing optional energy keys: {', '.join(missing_optional)}")
-            # else:
-            #     print("File structure check passed. Found all expected keys.") # DEBUG
-            
-            # Check if the data has the expected structure (Restoring strict check)
+                          
             missing_keys = [key for key in expected_keys if key not in self.data or self.data[key] is None]
             
             if missing_keys:
                  print(f"ERROR: The file is missing the following expected top-level keys: {missing_keys}") # DEBUG
                  messagebox.showerror("Error", f"The file does not have the expected structure or is missing required keys: {', '.join(missing_keys)}")
-                 self.data = None # Clear invalid data
+                 self.data = None
                  self.status_var.set("Error: Invalid file structure.")
                  return
             
             print("File structure check passed. Found all expected keys.") # DEBUG
             
-            # Extract container IDs if available
             if "container_info" in self.data and isinstance(self.data["container_info"], dict):
                 self.api_container_id = self.data["container_info"].get("api_container_id")
                 self.db_container_id = self.data["container_info"].get("db_container_id")
@@ -419,25 +340,21 @@ class ExperimentVisualizer:
             else:
                  print("WARNING: 'container_info' key not found or not a dictionary. Cannot extract container IDs.") # DEBUG
                  self.status_var.set("Warning: Container info missing, cannot link energy data.")
-                 self.api_container_id = None # Ensure IDs are None if container_info is missing
+                 self.api_container_id = None
                  self.db_container_id = None
 
-            # Extract experiment names from benchmark_results.experiments
-            # (Check benchmark_results structure as well)
             if "benchmark_results" in self.data and isinstance(self.data["benchmark_results"], dict) and "experiments" in self.data["benchmark_results"] and isinstance(self.data["benchmark_results"]["experiments"], dict):
                 experiments = self.data["benchmark_results"]["experiments"]
                 experiment_ids = list(experiments.keys())
                 print(f"Found {len(experiment_ids)} experiments in benchmark_results.") # DEBUG
                 
-                # Add "All data" and "All Experiments" as the first options
                 all_data_option = "All data"
                 all_experiments_option = "All Experiments"
                 self.experiment_selector['values'] = [all_data_option, all_experiments_option] + experiment_ids
                 
-                # Select the first option (All data)
                 self.experiment_selector.current(0)
                 self.experiment_var.set(all_data_option)
-                self.on_experiment_selected(None) # Trigger update
+                self.on_experiment_selected(None)
                 
                 self.status_var.set(f"Loaded {len(experiment_ids)} experiments from {os.path.basename(file_path)}")
             else:
@@ -455,12 +372,8 @@ class ExperimentVisualizer:
                     
                 messagebox.showerror("Error", f"No valid experiments found in the data file.\nReason: {err_msg}")
                 self.status_var.set("No experiments found in the data file.")
-                # Optionally clear data or handle differently
-                # self.data = None 
-                # Clear experiment selector
                 self.experiment_selector['values'] = []
                 self.experiment_var.set("")
-                # Clear details and plot
                 for widget in self.details_frame.winfo_children():
                     widget.destroy()
                 self.fig.clear()
@@ -474,7 +387,7 @@ class ExperimentVisualizer:
         except Exception as e:
             print(f"ERROR: An unexpected error occurred during data loading: {e}") # DEBUG
             import traceback
-            traceback.print_exc() # Print full traceback for unexpected errors
+            traceback.print_exc()
             messagebox.showerror("Error", f"Failed to load data: {str(e)}")
             self.status_var.set("Error loading data file")
             self.data = None
@@ -485,16 +398,13 @@ class ExperimentVisualizer:
             
         selected_experiment = self.experiment_var.get()
         
-        # Clear previous details
         for widget in self.details_frame.winfo_children():
             widget.destroy()
             
-        # Handle "All data" selection
         if selected_experiment == "All data":
             if "benchmark_results" in self.data and "experiments" in self.data["benchmark_results"]:
                 experiments = self.data["benchmark_results"]["experiments"]
                 
-                # Display a summary for all data
                 row = 0
                 ttk.Label(self.details_frame, text="All Data Summary", font=("Arial", 12, "bold")).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
                 row += 1
@@ -505,7 +415,6 @@ class ExperimentVisualizer:
                 ttk.Label(self.details_frame, text=f"Total Experiments: {len(experiments)}", font=("Arial", 10)).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
                 row += 1
                 
-                # Show energy data statistics
                 api_energy_count = len(self.data.get("api_server_energy", []))
                 db_energy_count = len(self.data.get("db_server_energy", []))
                 
@@ -515,11 +424,9 @@ class ExperimentVisualizer:
                 ttk.Label(self.details_frame, text=f"DB Server Energy Entries: {db_energy_count}", font=("Arial", 10)).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
                 row += 1
                 
-                # Update the plot with all data
                 self.update_plot()
                 return
         
-        # Handle "All Experiments" selection
         elif selected_experiment == "All Experiments":
             if "benchmark_results" in self.data and "experiments" in self.data["benchmark_results"]:
                 experiments = self.data["benchmark_results"]["experiments"]
@@ -612,9 +519,7 @@ class ExperimentVisualizer:
             for i, run in enumerate(experiment["runs"]):
                 ttk.Label(self.details_frame, text=f"Run {i+1}:").grid(row=row, column=0, sticky=tk.W, padx=5, pady=2)
                 
-                # Show start time in human readable format with EET timezone
                 if "start_timestamp" in run:
-                    # Convert milliseconds UTC to datetime with EET timezone
                     dt = self._convert_to_eet(run["start_timestamp"])
                     ttk.Label(self.details_frame, text=f"Started: {dt.strftime('%Y-%m-%d %H:%M:%S')} (EET)").grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
                     row += 1
@@ -636,7 +541,6 @@ class ExperimentVisualizer:
                     ttk.Label(self.details_frame, text=f"Median: {median:.2f}, P95: {p95:.2f}, P99: {p99:.2f}").grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
                     row += 1
         
-        # Update the plot for this experiment
         self.update_plot()
         
         self.status_var.set(f"Displaying data for experiment: {selected_experiment}")
@@ -648,9 +552,8 @@ class ExperimentVisualizer:
         
         experiment_id = self.experiment_var.get()
         self.status_var.set(f"Updating plot for: {experiment_id}")
-        self.root.update_idletasks()  # Force UI update
+        self.root.update_idletasks()
         
-        # Clear the figure
         self.fig.clear()
         
         # Get the experiment time boundaries
@@ -658,7 +561,6 @@ class ExperimentVisualizer:
             # No time filtering for "All data" option
             start_time_ms, end_time_ms = None, None
             experiment_ids = list(self.data["benchmark_results"]["experiments"].keys())
-            # print(f"DEBUG: 'All data' selected - no time filtering will be applied")
         elif experiment_id == "All Experiments":
             # Get the combined time boundaries for all experiments
             start_time_ms, end_time_ms = self.get_all_experiments_time_boundaries()
@@ -670,15 +572,6 @@ class ExperimentVisualizer:
             start_time_ms, end_time_ms = self.get_experiment_time_boundaries(experiment_id)
             experiment_ids = [experiment_id]
             
-            # Debug output for experiment boundaries (optional - can be removed in production)
-            # print(f"DEBUG: Experiment '{experiment_id}' boundaries: start={start_time_ms}, end={end_time_ms}")
-            # if start_time_ms and end_time_ms:
-            #     start_str = self._convert_to_eet(start_time_ms).strftime('%Y-%m-%d %H:%M:%S')
-            #     end_str = self._convert_to_eet(end_time_ms).strftime('%Y-%m-%d %H:%M:%S')
-            #     print(f"DEBUG: Experiment time range: {start_str} to {end_str} (EET)")
-            # else:
-            #     print(f"DEBUG: Failed to get time boundaries for experiment '{experiment_id}'")
-        
         # Debug info - show time boundaries in human-readable format
         if start_time_ms is not None and end_time_ms is not None:
             start_time_eet = self._convert_to_eet(start_time_ms).strftime('%Y-%m-%d %H:%M:%S')
@@ -689,28 +582,18 @@ class ExperimentVisualizer:
             if experiment_id == "All data":
                 self.status_var.set("Showing all available energy data without time filtering")
             else:
-                # print(f"DEBUG: Time boundaries are None - start_time_ms: {start_time_ms}, end_time_ms: {end_time_ms}")
                 self.status_var.set("No time boundaries available for selected experiment")
             self.root.update_idletasks()
         
-        # Filter energy data to only include entries within the time range
         api_energy_data = self.data.get("api_server_energy", [])
         db_energy_data = self.data.get("db_server_energy", [])
         
-        # Determine if we should use strict filtering (for specific experiments) or lenient (for all experiments/all data)
         use_strict_filtering = (experiment_id != "All Experiments" and experiment_id != "All data")
         
         filtered_api_data = self._filter_energy_data_by_time(api_energy_data, start_time_ms, end_time_ms, use_strict_filtering)
         filtered_db_data = self._filter_energy_data_by_time(db_energy_data, start_time_ms, end_time_ms, use_strict_filtering)
         
-        # Debug output (optional - can be removed in production)
-        # print(f"DEBUG: Original API data: {len(api_energy_data)} entries, Filtered: {len(filtered_api_data)} entries")
-        # print(f"DEBUG: Original DB data: {len(db_energy_data)} entries, Filtered: {len(filtered_db_data)} entries")
-        # print(f"DEBUG: Strict filtering: {use_strict_filtering}, Experiment: {experiment_id}")
-        # if start_time_ms and end_time_ms:
-        #     print(f"DEBUG: Time range: {start_time_ms} to {end_time_ms} ms")
-        
-        # Get the selected plot type and data source
+
         plot_type = self.plot_type_var.get()
         data_source = self.data_source_var.get()
         accumulation_mode = self.accumulation_var.get()
@@ -718,7 +601,7 @@ class ExperimentVisualizer:
         try:
             window_size_ms = int(self.window_size_var.get())
         except ValueError:
-            window_size_ms = 100  # Default if parsing fails
+            window_size_ms = 100
         
         # Process the energy data
         if data_source == "Energy":
@@ -752,7 +635,6 @@ class ExperimentVisualizer:
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
             ax.tick_params(axis='x', rotation=45)
             
-            # If either dataframe is empty, show a message
             if api_df.empty and db_df.empty and host_api_df.empty and host_db_df.empty and not self.mongodb_api_var.get() and not self.mongodb_db_var.get():
                 self.status_var.set("No energy data available for the selected time period")
                 ax.text(0.5, 0.5, "No energy data available", 
@@ -761,7 +643,6 @@ class ExperimentVisualizer:
             else:
                 # Plot the data based on the selected plot type and accumulation mode
                 if accumulation_mode == "Simple":
-                    # Simple mode - show instantaneous consumption
                     if plot_type == "Line":
                         if not api_df.empty and self.show_scaphandre_api_var.get():
                             ax.plot(api_df['datetime'], api_df['consumption'], 
@@ -779,13 +660,11 @@ class ExperimentVisualizer:
                              ax.plot(host_db_df['datetime'], host_db_df['consumption'], 
                                     label='Host (DB Server)', color='grey', linestyle=':', linewidth=1.5, marker=None)
                         
-                        # Plot MongoDB data if available
                         if self.mongodb_api_var.get() and self.mongodb_api_data is not None:
                             api_target = self.mongodb_api_target_var.get()
                             if api_target:
                                 mongo_api_df = self._get_filtered_mongodb_data(self.mongodb_api_data, api_target, start_time_ms, end_time_ms, use_strict_filtering)
                                 if mongo_api_df is not None:
-                                    # Apply windowing to MongoDB data
                                     processed_mongo_api_df = self._process_mongodb_data(mongo_api_df, window_size_ms)
                                     if not processed_mongo_api_df.empty:
                                         ax.plot(processed_mongo_api_df['datetime'], processed_mongo_api_df['power'],
@@ -796,16 +675,13 @@ class ExperimentVisualizer:
                             if db_target:
                                 mongo_db_df = self._get_filtered_mongodb_data(self.mongodb_db_data, db_target, start_time_ms, end_time_ms, use_strict_filtering)
                                 if mongo_db_df is not None:
-                                    # Apply windowing to MongoDB data
                                     processed_mongo_db_df = self._process_mongodb_data(mongo_db_df, window_size_ms)
                                     if not processed_mongo_db_df.empty:
                                         ax.plot(processed_mongo_db_df['datetime'], processed_mongo_db_df['power'],
                                                label='PowerAPI DB', color='orange', linewidth=2, marker=None)
                     
                     elif plot_type == "Bar":
-                        # For bar plots, we'll use bar width based on data density
-                        bar_width = 0.0002  # Adjust as needed for visibility
-                        
+                        bar_width = 0.0002
                         if not api_df.empty and self.show_scaphandre_api_var.get():
                             ax.bar(api_df['datetime'], api_df['consumption'], 
                                    width=bar_width, label='Scaphandre API Server (Java)', color='red', alpha=0.7)
@@ -822,13 +698,11 @@ class ExperimentVisualizer:
                             ax.bar(host_db_df['datetime'], host_db_df['consumption'], 
                                    width=bar_width * 0.6, label='Host (DB Server)', color='grey', alpha=0.5)
                         
-                        # Plot MongoDB data if available
                         if self.mongodb_api_var.get() and self.mongodb_api_data is not None:
                             api_target = self.mongodb_api_target_var.get()
                             if api_target:
                                 mongo_api_df = self._get_filtered_mongodb_data(self.mongodb_api_data, api_target, start_time_ms, end_time_ms, use_strict_filtering)
                                 if mongo_api_df is not None:
-                                    # Apply windowing to MongoDB data
                                     processed_mongo_api_df = self._process_mongodb_data(mongo_api_df, window_size_ms)
                                     if not processed_mongo_api_df.empty:
                                         ax.bar(processed_mongo_api_df['datetime'], processed_mongo_api_df['power'],
@@ -839,14 +713,12 @@ class ExperimentVisualizer:
                             if db_target:
                                 mongo_db_df = self._get_filtered_mongodb_data(self.mongodb_db_data, db_target, start_time_ms, end_time_ms, use_strict_filtering)
                                 if mongo_db_df is not None:
-                                    # Apply windowing to MongoDB data
                                     processed_mongo_db_df = self._process_mongodb_data(mongo_db_df, window_size_ms)
                                     if not processed_mongo_db_df.empty:
                                         ax.bar(processed_mongo_db_df['datetime'], processed_mongo_db_df['power'],
                                                width=bar_width, label='PowerAPI DB', color='orange', alpha=0.7)
                 
                 elif accumulation_mode == "Accumulated":
-                    # Accumulated mode - show cumulative energy consumption
                     ax.set_ylabel('Cumulative Energy Consumption (Watts)', fontsize=10)
                     
                     if not api_df.empty and self.show_scaphandre_api_var.get():
@@ -869,13 +741,11 @@ class ExperimentVisualizer:
                         ax.plot(host_db_df['datetime'], host_db_df['cumulative'], 
                                label='Host (DB Server) - Cumulative', color='grey', linestyle=':', linewidth=1.5, marker=None)
                     
-                    # Plot MongoDB data if available
                     if self.mongodb_api_var.get() and self.mongodb_api_data is not None:
                         api_target = self.mongodb_api_target_var.get()
                         if api_target:
                             mongo_api_df = self._get_filtered_mongodb_data(self.mongodb_api_data, api_target, start_time_ms, end_time_ms, use_strict_filtering)
                             if mongo_api_df is not None:
-                                # Apply windowing to MongoDB data
                                 processed_mongo_api_df = self._process_mongodb_data(mongo_api_df, window_size_ms)
                                 if not processed_mongo_api_df.empty:
                                     processed_mongo_api_df['cumulative'] = processed_mongo_api_df['power'].cumsum()
@@ -887,17 +757,14 @@ class ExperimentVisualizer:
                         if db_target:
                             mongo_db_df = self._get_filtered_mongodb_data(self.mongodb_db_data, db_target, start_time_ms, end_time_ms, use_strict_filtering)
                             if mongo_db_df is not None:
-                                # Apply windowing to MongoDB data
                                 processed_mongo_db_df = self._process_mongodb_data(mongo_db_df, window_size_ms)
                                 if not processed_mongo_db_df.empty:
                                     processed_mongo_db_df['cumulative'] = processed_mongo_db_df['power'].cumsum()
                                     ax.plot(processed_mongo_db_df['datetime'], processed_mongo_db_df['cumulative'],
                                            label='PowerAPI DB - Cumulative', color='orange', linewidth=2, marker=None)
                 
-                # Add legend
                 ax.legend(loc='best')
                 
-                # Add grid
                 ax.grid(True, linestyle='--', alpha=0.7)
                 
                 # Add run boundaries visualization for each experiment
@@ -910,7 +777,6 @@ class ExperimentVisualizer:
                         color = experiment_colors[color_index]
                         
                         for i, (run_num, run_start, run_end) in enumerate(run_boundaries):
-                            # Convert timestamps to datetime objects for plotting
                             run_start_dt = self._convert_to_eet(run_start)
                             run_end_dt = self._convert_to_eet(run_end)
                             
@@ -924,35 +790,27 @@ class ExperimentVisualizer:
                             ax.axvline(x=run_start_dt, color='green', linestyle='--', alpha=0.7)
                             ax.axvline(x=run_end_dt, color='red', linestyle='--', alpha=0.7)
                             
-                            # Only add text labels if we're showing a single experiment
-                            # Otherwise, it gets too cluttered
                             if experiment_id != "All Experiments":
                                 midpoint = run_start_dt + (run_end_dt - run_start_dt) / 2
-                                y_pos = ax.get_ylim()[1] * 0.95  # Position near the top
+                                y_pos = ax.get_ylim()[1] * 0.95
                                 ax.text(midpoint, y_pos, f'Run {run_num}', 
                                        ha='center', va='top', 
                                        bbox=dict(facecolor='white', alpha=0.8, boxstyle='round'))
                 
-                # Apply tight layout to maximize plot area
                 self.fig.tight_layout()
                 
-                # Add experiment boundary visualization when showing all experiments
                 if experiment_id == "All Experiments":
                     chronology = self._get_experiment_chronology()
                     
-                    if len(chronology) > 1:  # Only need to show boundaries if there's more than one experiment
-                        # Visualize the pause between experiments
+                    if len(chronology) > 1:
                         for i in range(len(chronology) - 1):
                             current_exp_id, _, current_end = chronology[i]
                             next_exp_id, next_start, _ = chronology[i + 1]
                             
-                            # Only show pause if there is a gap between experiments
                             if next_start > current_end:
-                                # Convert to datetime for plotting
                                 current_end_dt = self._convert_to_eet(current_end)
                                 next_start_dt = self._convert_to_eet(next_start)
                                 
-                                # Add a gray shaded region for the pause
                                 ax.axvspan(current_end_dt, next_start_dt, 
                                           alpha=0.2, 
                                           color='gray', 
@@ -964,12 +822,13 @@ class ExperimentVisualizer:
                                 ax.axvline(x=next_start_dt, color='black', linestyle='-', alpha=0.7, linewidth=2)
                                 
                                 # Calculate the duration of the pause in seconds
-                                pause_duration = (next_start - current_end) / 1000  # Convert ms to seconds
+                                pause_duration = (next_start - current_end) / 1000
                                 
                                 # Add a text label for the pause duration
-                                if pause_duration > 5:  # Only label if pause is significant (> 5 seconds)
+                                if pause_duration > 5:
                                     midpoint = current_end_dt + (next_start_dt - current_end_dt) / 2
-                                    y_pos = ax.get_ylim()[1] * 0.75  # Position at 75% of the height
+                                    y_pos = ax.get_ylim()[1] * 0.75 
+
                                     
                                     # Format the duration
                                     if pause_duration < 60:
@@ -986,14 +845,11 @@ class ExperimentVisualizer:
                                            fontsize=9)
                 
         elif data_source == "Energy Consumed":
-            # Create a new subplot
             ax = self.fig.add_subplot(111)
             
-            # Configure the axis
             ax.set_xlabel('Time (EET)', fontsize=10)
             ax.set_ylabel('Total Energy Consumed (Watts)', fontsize=10)
             
-            # Set plot title based on selected experiments
             if experiment_id == "All data":
                 ax.set_title(f'Total Energy Consumed - All Data (No Time Filtering)', fontsize=12)
             elif experiment_id == "All Experiments":
@@ -1001,7 +857,6 @@ class ExperimentVisualizer:
             else:
                 ax.set_title(f'Total Energy Consumed for Experiment: {experiment_id}', fontsize=12)
             
-            # Format the time axis
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
             ax.tick_params(axis='x', rotation=45)
             
@@ -1019,7 +874,6 @@ class ExperimentVisualizer:
             if end_time_ms is not None:
                 end_dt = self._convert_to_eet(end_time_ms)
                 
-            # --- Final Filtering of Processed Data --- 
             if start_dt is not None and not api_df.empty:
                 api_df = api_df[api_df['datetime'] >= start_dt]
             if end_dt is not None and not api_df.empty:
@@ -1029,9 +883,7 @@ class ExperimentVisualizer:
                 db_df = db_df[db_df['datetime'] >= start_dt]
             if end_dt is not None and not db_df.empty:
                 db_df = db_df[db_df['datetime'] <= end_dt]
-            # --- End Final Filtering ---
 
-            # Calculate cumulative energy consumption
             if not api_df.empty and self.show_scaphandre_api_var.get():
                 api_df['cumulative'] = api_df['consumption'].cumsum()
                 ax.plot(api_df['datetime'], api_df['cumulative'], 
@@ -1042,7 +894,6 @@ class ExperimentVisualizer:
                 ax.plot(db_df['datetime'], db_df['cumulative'], 
                        label='Scaphandre DB Server (Postgres)', color='blue', linewidth=2, marker=None)
             
-            # Add MongoDB data if available
             if self.mongodb_api_var.get() and self.mongodb_api_data is not None:
                 api_target = self.mongodb_api_target_var.get()
                 if api_target:
@@ -1050,13 +901,12 @@ class ExperimentVisualizer:
                     if mongo_api_df is not None:
                         processed_mongo_api_df = self._process_mongodb_data(mongo_api_df, window_size_ms)
                         if not processed_mongo_api_df.empty:
-                            # Filter processed MongoDB data as well
                             if start_dt is not None:
                                 processed_mongo_api_df = processed_mongo_api_df[processed_mongo_api_df['datetime'] >= start_dt]
                             if end_dt is not None:
                                 processed_mongo_api_df = processed_mongo_api_df[processed_mongo_api_df['datetime'] <= end_dt]
                                 
-                            if not processed_mongo_api_df.empty: # Check if still not empty after filtering
+                            if not processed_mongo_api_df.empty:
                                 processed_mongo_api_df['cumulative'] = processed_mongo_api_df['power'].cumsum()
                                 ax.plot(processed_mongo_api_df['datetime'], processed_mongo_api_df['cumulative'],
                                        label='PowerAPI API', color='green', linewidth=2, marker=None)
@@ -1068,24 +918,20 @@ class ExperimentVisualizer:
                     if mongo_db_df is not None:
                         processed_mongo_db_df = self._process_mongodb_data(mongo_db_df, window_size_ms)
                         if not processed_mongo_db_df.empty:
-                            # Filter processed MongoDB data as well
                             if start_dt is not None:
                                 processed_mongo_db_df = processed_mongo_db_df[processed_mongo_db_df['datetime'] >= start_dt]
                             if end_dt is not None:
                                 processed_mongo_db_df = processed_mongo_db_df[processed_mongo_db_df['datetime'] <= end_dt]
                                 
-                            if not processed_mongo_db_df.empty: # Check if still not empty after filtering
+                            if not processed_mongo_db_df.empty:
                                 processed_mongo_db_df['cumulative'] = processed_mongo_db_df['power'].cumsum()
                                 ax.plot(processed_mongo_db_df['datetime'], processed_mongo_db_df['cumulative'],
                                        label='PowerAPI DB', color='orange', linewidth=2, marker=None)
             
-            # Add legend
             ax.legend(loc='upper left', fontsize='small')
             
-            # Add grid
             ax.grid(True, linestyle='--', alpha=0.7)
             
-            # Add run boundaries visualization
             experiment_colors = ['lightgreen', 'lightblue', 'lightyellow', 'lightpink', 'lightcoral', 'lightskyblue']
             
             for idx, exp_id in enumerate(experiment_ids):
@@ -1112,7 +958,6 @@ class ExperimentVisualizer:
             total_mongo_api = processed_mongo_api_df['power'].sum() if 'processed_mongo_api_df' in locals() and not processed_mongo_api_df.empty else 0
             total_mongo_db = processed_mongo_db_df['power'].sum() if 'processed_mongo_db_df' in locals() and not processed_mongo_db_df.empty else 0
             
-            # Add text box with total energy consumption
             total_text = f"Total Energy Consumed:\n"
             total_text += f"API Server: {total_api:.2f} Watts\n"
             total_text += f"DB Server: {total_db:.2f} Watts\n"
@@ -1129,10 +974,8 @@ class ExperimentVisualizer:
                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
                    fontsize=10)
             
-            # Apply tight layout
             self.fig.tight_layout()
             
-            # Update status with total energy consumption
             self.status_var.set(f"Total energy consumed: {total_api + total_db + total_mongo_api + total_mongo_db:.2f} Watts")
             
         elif data_source == "Energy Comparative":
@@ -1144,8 +987,8 @@ class ExperimentVisualizer:
             db_df = self._process_energy_data(filtered_db_data, "db", window_size_ms)
             
             # Create a figure with two subplots (2 rows, 1 column)
-            ax1 = self.fig.add_subplot(211)  # Top subplot
-            ax2 = self.fig.add_subplot(212)  # Bottom subplot
+            ax1 = self.fig.add_subplot(211)
+            ax2 = self.fig.add_subplot(212)
             
             # Configure the axes
             if experiment_id == "All data":
@@ -1164,7 +1007,6 @@ class ExperimentVisualizer:
             ax2.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
             ax2.tick_params(axis='x', rotation=45)
             
-            # Plot API server data in top subplot
             has_scaphandre_api = not api_df.empty and self.show_scaphandre_api_var.get()
             has_powerapi_api = (self.mongodb_api_var.get() and self.mongodb_api_data is not None and 
                                self.mongodb_api_target_var.get())
@@ -1175,7 +1017,6 @@ class ExperimentVisualizer:
                         transform=ax1.transAxes, fontsize=10)
             else:
                 if accumulation_mode == "Simple":
-                    # Simple plot - show available data points
                     if has_scaphandre_api:
                         if plot_type == "Line":
                             ax1.plot(api_df['datetime'], api_df['consumption'], 
@@ -1184,16 +1025,14 @@ class ExperimentVisualizer:
                             ax1.scatter(api_df['datetime'], api_df['consumption'], 
                                        color='blue', marker='o', s=20, label='Scaphandre API Server Energy')
                         elif plot_type == "Bar":
-                            bar_width = 0.0002  # Adjust as needed
+                            bar_width = 0.0002
                             ax1.bar(api_df['datetime'], api_df['consumption'], 
                                    width=bar_width, color='blue', alpha=0.7, label='Scaphandre API Server Energy')
                     
-                    # Add MongoDB API data if available
                     if has_powerapi_api:
                         api_target = self.mongodb_api_target_var.get()
                         mongo_api_df = self._get_filtered_mongodb_data(self.mongodb_api_data, api_target, start_time_ms, end_time_ms, use_strict_filtering)
                         if mongo_api_df is not None:
-                            # Apply windowing to MongoDB data
                             processed_mongo_api_df = self._process_mongodb_data(mongo_api_df, window_size_ms)
                             if not processed_mongo_api_df.empty:
                                 bar_width = 0.0002 if 'bar_width' not in locals() else bar_width
@@ -1209,39 +1048,32 @@ class ExperimentVisualizer:
                                     ax1.bar(processed_mongo_api_df['datetime'], processed_mongo_api_df['power'],
                                               width=bar_width, color='green', alpha=0.7, 
                                               label='PowerAPI API')
-                else:  # Accumulated mode
-                    # Handle accumulated mode for available data
+                else:
                     if has_scaphandre_api:
-                        # Add a cumulative sum column for accumulated energy over time
                         api_df['accumulated'] = api_df['consumption'].cumsum()
                         if plot_type == "Line":
                             ax1.plot(api_df['datetime'], api_df['accumulated'], 
                                     color='red', linewidth=2, marker=None, label='Scaphandre Accumulated')
-                            # Add a second y-axis for non-accumulated values
                             ax1_twin = ax1.twinx()
                             ax1_twin.plot(api_df['datetime'], api_df['consumption'], 
                                          color='lightcoral', linewidth=1.5, marker=None, alpha=0.7, label='Per Interval')
                             ax1_twin.set_ylabel('Interval Energy', color='lightcoral', fontsize=8)
                             ax1_twin.tick_params(axis='y', labelcolor='lightcoral')
                     
-                    # Add MongoDB API data if available
                     if has_powerapi_api:
                         api_target = self.mongodb_api_target_var.get()
                         mongo_api_df = self._get_filtered_mongodb_data(self.mongodb_api_data, api_target, start_time_ms, end_time_ms, use_strict_filtering)
                         if mongo_api_df is not None:
-                            # Apply windowing to MongoDB data
                             processed_mongo_api_df = self._process_mongodb_data(mongo_api_df, window_size_ms)
                             if not processed_mongo_api_df.empty:
-                                # Plot MongoDB data on the main y-axis
                                 processed_mongo_api_df['accumulated'] = processed_mongo_api_df['power'].cumsum()
                                 ax1.plot(processed_mongo_api_df['datetime'], processed_mongo_api_df['accumulated'],
                                        color='green', linewidth=2, marker=None, 
                                        label='PowerAPI API Accumulated')
                     elif plot_type == "Bar":
-                        bar_width = 0.0002  # Adjust as needed
+                        bar_width = 0.0002
                         ax1.fill_between(api_df['datetime'], api_df['accumulated'], color='blue', alpha=0.3, label='Accumulated')
                         ax1.plot(api_df['datetime'], api_df['accumulated'], color='blue', linewidth=1.5)
-                        # Add bars for non-accumulated values
                         ax1_twin = ax1.twinx()
                         ax1_twin.bar(api_df['datetime'], api_df['consumption'], width=bar_width, color='lightblue', alpha=0.7, label='Per Interval')
                         ax1_twin.set_ylabel('Interval Energy', color='lightblue', fontsize=8)
@@ -1250,11 +1082,9 @@ class ExperimentVisualizer:
                         ax1.scatter(api_df['datetime'], api_df['accumulated'], color='blue', marker='o', s=15, label='Accumulated')
                         ax1.plot(api_df['datetime'], api_df['accumulated'], color='blue', linewidth=1, alpha=0.5)
             
-            # Add legend for API server subplot if we have data
             if (not api_df.empty) or (self.mongodb_api_var.get() and self.mongodb_api_data is not None):
                 ax1.legend(loc='upper left', fontsize='small')
             
-            # Plot DB server data in bottom subplot
             has_scaphandre_db = not db_df.empty and self.show_scaphandre_db_var.get()
             has_powerapi_db = (self.mongodb_db_var.get() and self.mongodb_db_data is not None and 
                               self.mongodb_db_target_var.get())
@@ -1265,7 +1095,6 @@ class ExperimentVisualizer:
                         transform=ax2.transAxes, fontsize=10)
             else:
                 if accumulation_mode == "Simple":
-                    # Simple plot - show available data points
                     if has_scaphandre_db:
                         if plot_type == "Line":
                             ax2.plot(db_df['datetime'], db_df['consumption'], 
@@ -1274,16 +1103,14 @@ class ExperimentVisualizer:
                             ax2.scatter(db_df['datetime'], db_df['consumption'], 
                                        color='green', marker='s', s=20, label='Scaphandre DB Server Energy')
                         elif plot_type == "Bar":
-                            bar_width = 0.0002  # Adjust as needed
+                            bar_width = 0.0002
                             ax2.bar(db_df['datetime'], db_df['consumption'], 
                                    width=bar_width, color='green', alpha=0.7, label='Scaphandre DB Server Energy')
                     
-                    # Add MongoDB DB data if available
                     if has_powerapi_db:
                         db_target = self.mongodb_db_target_var.get()
                         mongo_db_df = self._get_filtered_mongodb_data(self.mongodb_db_data, db_target, start_time_ms, end_time_ms, use_strict_filtering)
                         if mongo_db_df is not None:
-                            # Apply windowing to MongoDB data
                             processed_mongo_db_df = self._process_mongodb_data(mongo_db_df, window_size_ms)
                             if not processed_mongo_db_df.empty:
                                 bar_width = 0.0002 if 'bar_width' not in locals() else bar_width
@@ -1299,40 +1126,33 @@ class ExperimentVisualizer:
                                     ax2.bar(processed_mongo_db_df['datetime'], processed_mongo_db_df['power'],
                                           width=bar_width, color='orange', alpha=0.7, 
                                           label=f'PowerAPI DB ({db_target})')
-                else:  # Accumulated mode
-                    # Handle accumulated mode for available data
+                else:
                     if has_scaphandre_db:
-                        # Add a cumulative sum column for accumulated energy over time
                         db_df['accumulated'] = db_df['consumption'].cumsum()
                         
                         if plot_type == "Line":
                             ax2.plot(db_df['datetime'], db_df['accumulated'], 
                                     color='blue', linewidth=2, marker=None, label='Scaphandre Accumulated')
-                            # Add a second y-axis for non-accumulated values
                             ax2_twin = ax2.twinx()
                             ax2_twin.plot(db_df['datetime'], db_df['consumption'], 
                                          color='lightblue', linewidth=1.5, marker=None, alpha=0.7, label='Per Interval')
                             ax2_twin.set_ylabel('Interval Energy', color='lightblue', fontsize=8)
                             ax2_twin.tick_params(axis='y', labelcolor='lightblue')
                         
-                    # Add MongoDB DB data if available
                     if has_powerapi_db:
                         db_target = self.mongodb_db_target_var.get()
                         mongo_db_df = self._get_filtered_mongodb_data(self.mongodb_db_data, db_target, start_time_ms, end_time_ms, use_strict_filtering)
                         if mongo_db_df is not None:
-                            # Apply windowing to MongoDB data
                             processed_mongo_db_df = self._process_mongodb_data(mongo_db_df, window_size_ms)
                             if not processed_mongo_db_df.empty:
-                                # Plot MongoDB data on the main y-axis
                                 processed_mongo_db_df['accumulated'] = processed_mongo_db_df['power'].cumsum()
                                 ax2.plot(processed_mongo_db_df['datetime'], processed_mongo_db_df['accumulated'],
                                        color='orange', linewidth=2, marker=None, 
                                        label=f'PowerAPI DB ({db_target}) Accumulated')
                     elif plot_type == "Bar":
-                        bar_width = 0.0002  # Adjust as needed
+                        bar_width = 0.0002
                         ax2.fill_between(db_df['datetime'], db_df['accumulated'], color='green', alpha=0.3, label='Accumulated')
                         ax2.plot(db_df['datetime'], db_df['accumulated'], color='green', linewidth=1.5)
-                        # Add bars for non-accumulated values
                         ax2_twin = ax2.twinx()
                         ax2_twin.bar(db_df['datetime'], db_df['consumption'], width=bar_width, color='lightblue', alpha=0.7, label='Per Interval')
                         ax2_twin.set_ylabel('Interval Energy', color='lightblue', fontsize=8)
@@ -1341,15 +1161,12 @@ class ExperimentVisualizer:
                         ax2.scatter(db_df['datetime'], db_df['accumulated'], color='green', marker='s', s=15, label='Accumulated')
                         ax2.plot(db_df['datetime'], db_df['accumulated'], color='green', linewidth=1, alpha=0.5)
             
-            # Add legend for DB server subplot if we have data
             if has_scaphandre_db or has_powerapi_db:
                 ax2.legend(loc='upper left', fontsize='small')
             
-            # Add grid to both subplots
             ax1.grid(True, linestyle='--', alpha=0.7)
             ax2.grid(True, linestyle='--', alpha=0.7)
             
-            # Use scientific notation for y-axis if values are large
             if not api_df.empty and (api_df['consumption'].max() > 10000 or 
                                     (accumulation_mode == "Accumulated" and 'accumulated' in api_df.columns and api_df['accumulated'].max() > 10000)):
                 ax1.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
@@ -1358,14 +1175,13 @@ class ExperimentVisualizer:
                                    (accumulation_mode == "Accumulated" and 'accumulated' in db_df.columns and db_df['accumulated'].max() > 10000)):
                 ax2.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
             
-            # Add legends if needed
             if accumulation_mode == "Accumulated" and not api_df.empty and 'accumulated' in api_df.columns:
                 try:
                     lines, labels = ax1.get_legend_handles_labels()
                     lines2, labels2 = ax1.twinx().get_legend_handles_labels()
                     ax1.legend(lines + lines2, labels + labels2, loc='upper left', fontsize='small')
                 except:
-                    pass  # Fallback if twin axis doesn't exist
+                    pass
             
             if accumulation_mode == "Accumulated" and not db_df.empty and 'accumulated' in db_df.columns:
                 try:
@@ -1373,18 +1189,15 @@ class ExperimentVisualizer:
                     lines2, labels2 = ax2.twinx().get_legend_handles_labels()
                     ax2.legend(lines + lines2, labels + labels2, loc='upper left', fontsize='small')
                 except:
-                    pass  # Fallback if twin axis doesn't exist
+                    pass
             
-            # Adjust the layout to fit the subplots
             self.fig.tight_layout()
             
-            # Update status with data summary
             api_count = len(api_df) if not api_df.empty else 0
             db_count = len(db_df) if not db_df.empty else 0
             total_api = api_df['consumption'].sum() if not api_df.empty else 0
             total_db = db_df['consumption'].sum() if not db_df.empty else 0
             
-            # Count PowerAPI data points
             powerapi_api_count = 0
             powerapi_db_count = 0
             
@@ -1404,7 +1217,6 @@ class ExperimentVisualizer:
                     if not processed_mongo_db_df.empty:
                         powerapi_db_count = len(processed_mongo_db_df)
             
-            # Format the summary message
             if accumulation_mode == "Accumulated":
                 self.status_var.set(
                     f"Comparative view: API data: {api_count} points, total: {total_api:.2e} units | "
@@ -1423,12 +1235,9 @@ class ExperimentVisualizer:
                     self.status_var.set("Comparative view: No data available")
                 
         elif data_source == "Latency":
-            # Handle the "All data" and "All Experiments" cases
             if experiment_id == "All data" or experiment_id == "All Experiments":
-                # Create a new subplot
                 ax = self.fig.add_subplot(111)
                 
-                # Configure the axis
                 ax.set_xlabel('Time (EET)', fontsize=10)
                 ax.set_ylabel('Latency (ms)', fontsize=10)
                 if experiment_id == "All data":
@@ -1436,11 +1245,9 @@ class ExperimentVisualizer:
                 else:
                     ax.set_title(f'Request Latency for All Experiments', fontsize=12)
                 
-                # Format the time axis
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
                 ax.tick_params(axis='x', rotation=45)
                 
-                # Plot latency data for each experiment with different colors
                 experiment_colors = ['purple', 'green', 'orange', 'brown', 'magenta', 'cyan']
                 has_data = False
                 
@@ -1448,7 +1255,6 @@ class ExperimentVisualizer:
                     experiment = self.data["benchmark_results"]["experiments"].get(exp_id, {})
                     runs = experiment.get("runs", [])
                     
-                    # Collect latency data from all runs of this experiment
                     latency_data = []
                     for run in runs:
                         if "latencies" in run:
@@ -1461,10 +1267,8 @@ class ExperimentVisualizer:
                     
                     if latency_data:
                         has_data = True
-                        # Convert to DataFrame for easier plotting
                         latency_df = pd.DataFrame(latency_data, columns=['datetime', 'latency'])
                         
-                        # Plot based on plot type with experiment-specific color
                         color = experiment_colors[idx % len(experiment_colors)]
                         
                         if plot_type == "Line":
@@ -1474,7 +1278,7 @@ class ExperimentVisualizer:
                             ax.scatter(latency_df['datetime'], latency_df['latency'], 
                                      label=f'{exp_id}', color=color, marker='o', s=30, alpha=0.7)
                         elif plot_type == "Bar":
-                            bar_width = 0.0002  # Adjust as needed
+                            bar_width = 0.0002
                             ax.bar(latency_df['datetime'], latency_df['latency'], 
                                   width=bar_width, label=f'{exp_id}', color=color, alpha=0.7)
                 
@@ -1483,13 +1287,10 @@ class ExperimentVisualizer:
                            horizontalalignment='center', verticalalignment='center',
                            transform=ax.transAxes, fontsize=14)
                 else:
-                    # Add grid
                     ax.grid(True, linestyle='--', alpha=0.7)
                     
-                    # Add legend for the experiments
                     ax.legend(loc='upper left', fontsize='small')
                     
-                    # Add run boundaries visualization for each experiment
                     experiment_colors = ['lightgreen', 'lightblue', 'lightyellow', 'lightpink', 'lightcoral', 'lightskyblue']
                     
                     for idx, exp_id in enumerate(experiment_ids):
@@ -1499,58 +1300,45 @@ class ExperimentVisualizer:
                             color = experiment_colors[color_index]
                             
                             for i, (run_num, run_start, run_end) in enumerate(run_boundaries):
-                                # Convert timestamps to datetime objects for plotting
                                 run_start_dt = self._convert_to_eet(run_start)
                                 run_end_dt = self._convert_to_eet(run_end)
                                 
-                                # Add shaded region for this run
                                 ax.axvspan(run_start_dt, run_end_dt, 
-                                          alpha=0.15,  # Lower alpha for multiple experiments
+                                          alpha=0.15,
                                           color=color, 
                                           label="" if i > 0 else f'{exp_id} runs')
                                 
-                                # Add vertical lines at run boundaries (less visible)
                                 ax.axvline(x=run_start_dt, color='green', linestyle='--', alpha=0.3)
                                 ax.axvline(x=run_end_dt, color='red', linestyle='--', alpha=0.3)
                     
-                    # Apply tight layout to maximize plot area
                     self.fig.tight_layout()
                     
-                    # Add experiment boundary visualization when showing all experiments
                     chronology = self._get_experiment_chronology()
                     
-                    if len(chronology) > 1:  # Only need to show boundaries if there's more than one experiment
-                        # Visualize the pause between experiments
+                    if len(chronology) > 1:
                         for i in range(len(chronology) - 1):
                             current_exp_id, _, current_end = chronology[i]
                             next_exp_id, next_start, _ = chronology[i + 1]
                             
-                            # Only show pause if there is a gap between experiments
                             if next_start > current_end:
-                                # Convert to datetime for plotting
                                 current_end_dt = self._convert_to_eet(current_end)
                                 next_start_dt = self._convert_to_eet(next_start)
                                 
-                                # Add a gray shaded region for the pause
                                 ax.axvspan(current_end_dt, next_start_dt, 
                                           alpha=0.2, 
                                           color='gray', 
                                           hatch='///' if i % 2 == 0 else '\\\\\\',
                                           label='Inter-experiment pause' if i == 0 else "")
                                 
-                                # Add vertical lines at experiment boundaries
                                 ax.axvline(x=current_end_dt, color='black', linestyle='-', alpha=0.7, linewidth=2)
                                 ax.axvline(x=next_start_dt, color='black', linestyle='-', alpha=0.7, linewidth=2)
                                 
-                                # Calculate the duration of the pause in seconds
-                                pause_duration = (next_start - current_end) / 1000  # Convert ms to seconds
+                                pause_duration = (next_start - current_end) / 1000
                                 
-                                # Add a text label for the pause duration
-                                if pause_duration > 5:  # Only label if pause is significant (> 5 seconds)
+                                if pause_duration > 5:
                                     midpoint = current_end_dt + (next_start_dt - current_end_dt) / 2
-                                    y_pos = ax.get_ylim()[1] * 0.75  # Position at 75% of the height
+                                    y_pos = ax.get_ylim()[1] * 0.75
                                     
-                                    # Format the duration
                                     if pause_duration < 60:
                                         duration_text = f"{pause_duration:.1f}s"
                                     elif pause_duration < 3600:
@@ -1564,7 +1352,6 @@ class ExperimentVisualizer:
                                            bbox=dict(facecolor='white', alpha=0.8, boxstyle='round'),
                                            fontsize=9)
             else:
-                # Single experiment latency view - use existing code
                 experiment = self.data["benchmark_results"]["experiments"].get(experiment_id, {})
                 runs = experiment.get("runs", [])
                 
@@ -1574,19 +1361,15 @@ class ExperimentVisualizer:
                            horizontalalignment='center', verticalalignment='center',
                            transform=ax.transAxes, fontsize=14)
                 else:
-                    # Create a new subplot
                     ax = self.fig.add_subplot(111)
                     
-                    # Configure the axis
                     ax.set_xlabel('Time (EET)', fontsize=10)
                     ax.set_ylabel('Latency (ms)', fontsize=10)
                     ax.set_title(f'Request Latency for Experiment: {experiment_id}', fontsize=12)
                     
-                    # Format the time axis
                     ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
                     ax.tick_params(axis='x', rotation=45)
                     
-                    # Collect latency data from all runs
                     latency_data = []
                     for run in runs:
                         if "latencies" in run:
@@ -1602,10 +1385,8 @@ class ExperimentVisualizer:
                                horizontalalignment='center', verticalalignment='center',
                                transform=ax.transAxes, fontsize=14)
                     else:
-                        # Convert to DataFrame for easier plotting
                         latency_df = pd.DataFrame(latency_data, columns=['datetime', 'latency'])
                         
-                        # Plot based on plot type
                         if plot_type == "Line":
                             ax.plot(latency_df['datetime'], latency_df['latency'], 
                                    color='purple', linewidth=2, marker=None, alpha=0.7)
@@ -1613,53 +1394,41 @@ class ExperimentVisualizer:
                             ax.scatter(latency_df['datetime'], latency_df['latency'], 
                                      color='purple', marker='o', s=30, alpha=0.7)
                         elif plot_type == "Bar":
-                            bar_width = 0.0002  # Adjust as needed
+                            bar_width = 0.0002
                             ax.bar(latency_df['datetime'], latency_df['latency'], 
                                   width=bar_width, color='purple', alpha=0.7)
                         
-                        # Add grid
                         ax.grid(True, linestyle='--', alpha=0.7)
                         
-                        # Add run boundaries visualization
                         if run_boundaries := self._get_run_time_boundaries(experiment_id):
-                            # Define colors for alternating run shading
                             run_colors = ['lightgreen', 'lightblue']
                             
                             for i, (run_num, run_start, run_end) in enumerate(run_boundaries):
-                                # Convert timestamps to datetime objects for plotting
                                 run_start_dt = self._convert_to_eet(run_start)
                                 run_end_dt = self._convert_to_eet(run_end)
                                 
-                                # Add shaded region for this run
                                 ax.axvspan(run_start_dt, run_end_dt, 
                                           alpha=0.3, 
                                           color=run_colors[i % len(run_colors)], 
                                           label=f'Run {run_num}' if i == 0 else "")
                                 
-                                # Add vertical lines at run boundaries
                                 ax.axvline(x=run_start_dt, color='green', linestyle='--', alpha=0.7)
                                 ax.axvline(x=run_end_dt, color='red', linestyle='--', alpha=0.7)
                                 
-                                # Add text label for the run
                                 midpoint = run_start_dt + (run_end_dt - run_start_dt) / 2
-                                y_pos = ax.get_ylim()[1] * 0.95  # Position near the top
+                                y_pos = ax.get_ylim()[1] * 0.95
                                 ax.text(midpoint, y_pos, f'Run {run_num}', 
                                        ha='center', va='top', 
                                        bbox=dict(facecolor='white', alpha=0.8, boxstyle='round'))
                         
-                        # Apply tight layout to maximize plot area
                         self.fig.tight_layout()
 
-                        # Add legend
                         ax.legend(loc='upper left', fontsize='small')
         
         elif data_source == "Throughput":
-            # Handle the "All data" and "All Experiments" cases
             if experiment_id == "All data" or experiment_id == "All Experiments":
-                # Create a new subplot
                 ax = self.fig.add_subplot(111)
                 
-                # Configure the axis
                 ax.set_xlabel('Time (EET)', fontsize=10)
                 ax.set_ylabel('Throughput (requests/second)', fontsize=10)
                 if experiment_id == "All data":
@@ -1667,14 +1436,11 @@ class ExperimentVisualizer:
                 else:
                     ax.set_title(f'Request Throughput for All Experiments', fontsize=12)
                 
-                # Format the time axis
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
                 ax.tick_params(axis='x', rotation=45)
                 
-                # Format y-axis to show more decimal places
                 ax.yaxis.set_major_formatter(plt.FormatStrFormatter('%.5f'))
                 
-                # Plot throughput data for each experiment with different colors
                 experiment_colors = ['purple', 'green', 'orange', 'brown', 'magenta', 'cyan']
                 has_data = False
                 
@@ -1682,38 +1448,31 @@ class ExperimentVisualizer:
                     experiment = self.data["benchmark_results"]["experiments"].get(exp_id, {})
                     runs = experiment.get("runs", [])
                     
-                    # Collect throughput data from all runs of this experiment
                     throughput_data = []
                     goodput_data = []
                     for run in runs:
                         if "throughput" in run and "start_timestamp" in run:
-                            # Use the start timestamp for the throughput point
                             timestamp_ms = run["start_timestamp"]
                             throughput = run["throughput"]
                             dt = self._convert_to_eet(timestamp_ms)
                             throughput_data.append((dt, throughput))
                             
-                            # Also collect goodput if available
                             if "goodput" in run:
                                 goodput = run["goodput"]
                                 goodput_data.append((dt, goodput))
                     
                     if throughput_data:
                         has_data = True
-                        # Convert to DataFrame for easier plotting
                         throughput_df = pd.DataFrame(throughput_data, columns=['datetime', 'throughput'])
                         
-                        # Sort by datetime to ensure chronological order
                         throughput_df = throughput_df.sort_values('datetime')
                         
-                        # Plot with appropriate color and label
                         color = experiment_colors[idx % len(experiment_colors)]
                         if plot_type == "Line":
                             ax.plot(throughput_df['datetime'], throughput_df['throughput'], 
                                    marker='o', linestyle='-', color=color, 
                                    label=f"{exp_id} (Total)", linewidth=2)
                             
-                            # Plot goodput if available
                             if goodput_data:
                                 goodput_df = pd.DataFrame(goodput_data, columns=['datetime', 'goodput'])
                                 goodput_df = goodput_df.sort_values('datetime')
@@ -1721,15 +1480,13 @@ class ExperimentVisualizer:
                                        marker='x', linestyle='--', color=color, 
                                        label=f"{exp_id} (Successful)", linewidth=1.5, alpha=0.7)
                         elif plot_type == "Bar":
-                            bar_width = 0.0002  # Adjust as needed
+                            bar_width = 0.0002
                             ax.bar(throughput_df['datetime'], throughput_df['throughput'], 
                                   width=bar_width, color=color, alpha=0.7, label=f"{exp_id} (Total)")
                             
-                            # Plot goodput as bars if available
                             if goodput_data:
                                 goodput_df = pd.DataFrame(goodput_data, columns=['datetime', 'goodput'])
                                 goodput_df = goodput_df.sort_values('datetime')
-                                # Use a lighter shade of the same color for goodput with slight offset
                                 ax.bar(goodput_df['datetime'], goodput_df['goodput'], 
                                       width=bar_width*0.8, color=color, alpha=0.4, 
                                       label=f"{exp_id} (Successful)")
@@ -1737,7 +1494,6 @@ class ExperimentVisualizer:
                             ax.scatter(throughput_df['datetime'], throughput_df['throughput'], 
                                       color=color, marker='o', s=50, label=f"{exp_id} (Total)")
                             
-                            # Plot goodput if available
                             if goodput_data:
                                 goodput_df = pd.DataFrame(goodput_data, columns=['datetime', 'goodput'])
                                 goodput_df = goodput_df.sort_values('datetime')
@@ -1746,23 +1502,18 @@ class ExperimentVisualizer:
                                          label=f"{exp_id} (Successful)")
                 
                 if has_data:
-                    # Add a legend
                     ax.legend(loc='upper left', fontsize='small')
                     
-                    # Set x-axis to show integer run numbers
                     ax.xaxis.set_major_locator(mticker.MaxNLocator(integer=True))
                     
-                    # Set reasonable y-axis limits
                     if ax.get_ylim()[0] < 0:
-                        ax.set_ylim(bottom=0)  # Start from 0 for throughput
+                        ax.set_ylim(bottom=0)
                     
-                    # Add data labels for Line and Scatter plots
                     if plot_type in ["Line", "Scatter"]:
                         for idx, exp_id in enumerate(experiment_ids):
                             experiment = self.data["benchmark_results"]["experiments"].get(exp_id, {})
                             runs = experiment.get("runs", [])
                             
-                            # Process throughput data
                             throughput_data = []
                             for run in runs:
                                 if "throughput" in run and "start_timestamp" in run:
@@ -1775,32 +1526,25 @@ class ExperimentVisualizer:
                                 throughput_df = pd.DataFrame(throughput_data, columns=['datetime', 'throughput'])
                                 throughput_df = throughput_df.sort_values('datetime')
                                 
-                                # Add data labels
                                 for i, row in throughput_df.iterrows():
                                     ax.text(row['datetime'], row['throughput'], f"{row['throughput']:.5f}", 
                                            ha='center', va='bottom', fontsize=7)
                 else:
-                    # No data available message
                     ax.text(0.5, 0.5, "No throughput data available for the selected experiments", 
                            horizontalalignment='center', verticalalignment='center',
                            transform=ax.transAxes, fontsize=10)
             else:
-                # Single experiment view
                 experiment = self.data["benchmark_results"]["experiments"].get(experiment_id, {})
                 runs = experiment.get("runs", [])
                 
-                # Create a new subplot
                 ax = self.fig.add_subplot(111)
                 
-                # Configure the axis
                 ax.set_xlabel('Run Number', fontsize=10)
                 ax.set_ylabel('Throughput (requests/second)', fontsize=10)
                 ax.set_title(f'Request Throughput for {experiment_id}', fontsize=12)
                 
-                # Format y-axis to show more decimal places
                 ax.yaxis.set_major_formatter(plt.FormatStrFormatter('%.5f'))
                 
-                # Collect throughput data for this experiment
                 throughput_data = []
                 goodput_data = []
                 for i, run in enumerate(runs):
@@ -1813,12 +1557,9 @@ class ExperimentVisualizer:
                         goodput_data.append((run_number, goodput))
                 
                 if throughput_data or goodput_data:
-                    # Plot throughput data
                     if throughput_data:
-                        # Convert to DataFrame for easier plotting
                         throughput_df = pd.DataFrame(throughput_data, columns=['run', 'throughput'])
                         
-                        # Plot with appropriate style
                         if plot_type == "Line":
                             ax.plot(throughput_df['run'], throughput_df['throughput'], 
                                   marker='o', linestyle='-', color='blue', 
@@ -1831,12 +1572,9 @@ class ExperimentVisualizer:
                             ax.scatter(throughput_df['run'], throughput_df['throughput'], 
                                      color='blue', marker='o', s=50, label='Total Throughput')
                     
-                    # Plot goodput data
                     if goodput_data:
-                        # Convert to DataFrame for easier plotting
                         goodput_df = pd.DataFrame(goodput_data, columns=['run', 'goodput'])
                         
-                        # Plot with appropriate style
                         if plot_type == "Line":
                             ax.plot(goodput_df['run'], goodput_df['goodput'], 
                                   marker='x', linestyle='--', color='green', 
@@ -1849,17 +1587,13 @@ class ExperimentVisualizer:
                             ax.scatter(goodput_df['run'], goodput_df['goodput'], 
                                      color='green', marker='x', s=50, label='Successful Throughput')
                     
-                    # Add legend
                     ax.legend(loc='best')
                     
-                    # Set x-axis to show integer run numbers
                     ax.xaxis.set_major_locator(mticker.MaxNLocator(integer=True))
                     
-                    # Set reasonable y-axis limits
                     if ax.get_ylim()[0] < 0:
-                        ax.set_ylim(bottom=0)  # Start from 0 for throughput
+                        ax.set_ylim(bottom=0)
                     
-                    # Add data labels
                     if throughput_data and plot_type != "Bar":
                         for i, row in throughput_df.iterrows():
                             ax.text(row['run'], row['throughput'], f"{row['throughput']:.5f}", 
@@ -1870,43 +1604,33 @@ class ExperimentVisualizer:
                             ax.text(row['run'], row['goodput'], f"{row['goodput']:.5f}", 
                                    ha='center', va='bottom', fontsize=8)
                 else:
-                    # No data available message
                     ax.text(0.5, 0.5, "No throughput data available for this experiment", 
                            horizontalalignment='center', verticalalignment='center',
                            transform=ax.transAxes, fontsize=10)
         
-        # Redraw the canvas with the new plot
         self.canvas.draw()
     def update_accumulation_options(self):
         """Update accumulation dropdown options based on current plot settings"""
         plot_type = self.plot_type_var.get()
         data_source = self.data_source_var.get()
         
-        # Define which combinations support accumulated mode
         supports_accumulated = True
         
-        # Disable accumulated mode for non-energy data sources
-        # (Latency and Throughput don't make sense to accumulate)
         if data_source in ["Latency", "Throughput"]:
             supports_accumulated = False
         
-        # Disable accumulated mode for scatter plots with energy data
-        # (Accumulated scatter plots are visually confusing)
         elif plot_type == "Scatter" and data_source in ["Energy", "Energy Consumed", "Energy Comparative"]:
             supports_accumulated = False
         
-        # Bar charts with accumulated mode can be confusing too
         elif plot_type == "Bar" and data_source in ["Energy", "Energy Consumed", "Energy Comparative"]:
             supports_accumulated = False
         
-        # Update the dropdown values and state
         if supports_accumulated:
             self.accumulation_combo['values'] = ["Simple", "Accumulated"]
             self.accumulation_combo['state'] = "readonly"
         else:
             self.accumulation_combo['values'] = ["Simple"]
             self.accumulation_combo['state'] = "readonly"
-            # If currently set to Accumulated, switch to Simple
             if self.accumulation_var.get() == "Accumulated":
                 self.accumulation_var.set("Simple")
     
@@ -1916,10 +1640,8 @@ class ExperimentVisualizer:
             self.status_var.set("No data loaded or no experiment selected")
             return
         
-        # Update accumulation options first
         self.update_accumulation_options()
             
-        # Simply call the update_plot method
         self.update_plot()
     
     def get_experiment_time_boundaries(self, experiment_id):
@@ -1941,11 +1663,9 @@ class ExperimentVisualizer:
             if not runs:
                 return None, None
                 
-            # Get the start timestamp from the first run
             first_run = runs[0]
             start_time_ms = first_run.get("start_timestamp")
             
-            # Get the end timestamp from the last run
             last_run = runs[-1]
             end_time_ms = last_run.get("end_timestamp")
             
@@ -2030,7 +1750,7 @@ class ExperimentVisualizer:
                 ts = host_interval["host"]["timestamp"]
                 if isinstance(ts, (int, float)):
                     # Convert to seconds if needed
-                    if ts > 1e10:  # If timestamp is in milliseconds
+                    if ts > 1e10:
                         ts = ts / 1000
                     energy_timestamps.append(ts)
             
@@ -2041,7 +1761,7 @@ class ExperimentVisualizer:
                         ts = consumer["timestamp"]
                         if isinstance(ts, (int, float)):
                             # Convert to seconds if needed
-                            if ts > 1e10:  # If timestamp is in milliseconds
+                            if ts > 1e10:
                                 ts = ts / 1000
                             energy_timestamps.append(ts)
         
@@ -2060,7 +1780,6 @@ class ExperimentVisualizer:
         min_time_str = self._convert_to_eet(min_timestamp * 1000).strftime('%Y-%m-%d %H:%M:%S')
         max_time_str = self._convert_to_eet(max_timestamp * 1000).strftime('%Y-%m-%d %H:%M:%S')
         
-        # Print detailed debug information
         self.status_var.set(
             f"Experiment time: {start_time_str} to {end_time_str} | "
             f"Energy data: {min_time_str} to {max_time_str} | "
@@ -2075,26 +1794,23 @@ class ExperimentVisualizer:
                     f"and energy data ({min_time_str} - {max_time_str}). "
                     f"Showing ALL data instead."
                 )
-                return energy_data  # Return all data if no overlap
+                return energy_data
             else:
                 self.status_var.set(
                     f"No overlap between experiment time ({start_time_str} - {end_time_str}) "
                     f"and energy data ({min_time_str} - {max_time_str}). "
                     f"No energy data to display for this experiment."
                 )
-                return []  # Return empty data for strict filtering
+                return []
         
-        # Filter data to only include entries within the exact experiment time range
         filtered_data = []
         for host_interval in energy_data:
-            # Check if this host interval has any timestamps within the experiment range
             interval_in_range = False
             
-            # Check host timestamp
             if "host" in host_interval and "timestamp" in host_interval["host"]:
                 ts = host_interval["host"]["timestamp"]
                 if isinstance(ts, (int, float)):
-                    if ts > 1e10:  # If timestamp is in milliseconds
+                    if ts > 1e10:
                         ts = ts / 1000
                     if ts >= start_time_sec and ts <= end_time_sec:
                         interval_in_range = True
@@ -2105,7 +1821,7 @@ class ExperimentVisualizer:
                     if "timestamp" in consumer:
                         ts = consumer["timestamp"]
                         if isinstance(ts, (int, float)):
-                            if ts > 1e10:  # If timestamp is in milliseconds
+                            if ts > 1e10:
                                 ts = ts / 1000
                             if ts >= start_time_sec and ts <= end_time_sec:
                                 interval_in_range = True
@@ -2129,7 +1845,6 @@ class ExperimentVisualizer:
                 )
                 return []
         
-        # Show how many data points were kept
         self.status_var.set(
             f"Filtered energy data: kept {len(filtered_data)}/{len(energy_data)} entries "
             f"({(len(filtered_data)/len(energy_data)*100):.1f}%)"
@@ -2167,18 +1882,7 @@ class ExperimentVisualizer:
         current_window_start = None
         accumulated_consumption = 0.0
         processed_data = []
-        
-        # Create debug log structure
-        debug_log = {
-            "target_type": target_type,
-            "window_size_ms": window_size_ms,
-            "total_host_intervals": len(data_source),
-            "processed_consumer_entries": [],
-            "intervals_without_target": 0,
-            "skipped_consumers": []
-        }
 
-        # --- Host Energy Processing Logic --- 
         if target_type == "host":
             for host_interval in data_source:
                 host_info = host_interval.get("host")
@@ -2220,17 +1924,13 @@ class ExperimentVisualizer:
                 df = pd.DataFrame(processed_data, columns=['timestamp', 'consumption', 'datetime'])
                 print(f"DEBUG: Generated DataFrame for 'host' with {len(df)} rows.") # DEBUG
                 return df
-        # --- End Host Energy Processing Logic ---
 
-        # --- Container Energy Processing Logic (existing code) ---
-        # Iterate through host intervals (each element in the top-level list)
         for host_interval in data_source:
             consumers = host_interval.get("consumers", [])
             target_consumer_found_in_interval = False
-            consumption_in_interval = 0.0 # Accumulate consumption for this interval
-            interval_timestamp = None # Timestamp for this interval
+            consumption_in_interval = 0.0
+            interval_timestamp = None
 
-            # Iterate through consumers within the interval
             for consumer in consumers:
                 container_info = consumer.get("container")
                 consumption = consumer.get("consumption", 0.0)
@@ -2239,34 +1939,18 @@ class ExperimentVisualizer:
                 if timestamp is not None:
                     interval_timestamp = timestamp # Use the consumer timestamp for the interval
                 
-                # Basic consumer info for debug log
-                consumer_debug = {
-                    "pid": consumer.get("pid"),
-                    "exe": consumer.get("exe"),
-                    "cmdline": consumer.get("cmdline"),
-                    "consumption": consumption,
-                    "timestamp": timestamp,
-                    "container": container_info
-                }
-
                 # Skip entries without necessary data (consumption/timestamp)
                 if consumption is None or timestamp is None:
-                    consumer_debug["reason_skipped"] = "Missing consumption or timestamp"
-                    debug_log["skipped_consumers"].append(consumer_debug)
                     continue
                     
-                # --- Target Filtering Logic --- (Modified)
                 is_target = False
                 if target_type == "api":
-                    # Check if the full container ID starts with the stored short ID
                     if container_info and target_api_id and container_info.get("id", "").startswith(target_api_id):
                         is_target = True
                 elif target_type == "db":
-                     # Check if the full container ID starts with the stored short ID
                     if container_info and target_db_id and container_info.get("id", "").startswith(target_db_id):
                         is_target = True
                 elif target_type == "java":
-                    # Check executable name (case-insensitive)
                     exe_path = consumer.get("exe", "")
                     if exe_path and "java" in exe_path.lower():
                         is_target = True
@@ -2275,73 +1959,36 @@ class ExperimentVisualizer:
                     exe_path = consumer.get("exe", "")
                     if exe_path and "postgres" in exe_path.lower():
                         is_target = True
-                # --- End Target Filtering ---
 
                 if is_target:
                     target_consumer_found_in_interval = True
-                    consumption_in_interval += consumption # Accumulate for all matching consumers in interval
-                    
-                    # Log processed consumer (only need basic info here)
-                    consumer_debug["processed"] = True
-                    debug_log["processed_consumer_entries"].append(consumer_debug)
-                else:
-                    # Log skipped consumer if it wasn't the target
-                    consumer_debug["reason_skipped"] = f"Not the target ({target_type}) container/process"
-                    debug_log["skipped_consumers"].append(consumer_debug)
+                    consumption_in_interval += consumption
 
-            # --- Apply Windowing Logic (Moved outside consumer loop) ---
             if target_consumer_found_in_interval and interval_timestamp is not None:
-                # Convert accumulated consumption from microWatts to Watts
                 consumption_watts = consumption_in_interval / 1_000_000.0
                 
                 # Convert timestamp from seconds to milliseconds
                 milliseconds = int(interval_timestamp * 1000)
                 
                 if current_window_start is None or milliseconds >= current_window_start + window_size_ms:
-                    # If a window exists and has data, add it before starting a new one
                     if current_window_start is not None and accumulated_consumption > 0:
                          dt = self._convert_to_eet(current_window_start)
                          processed_data.append((current_window_start, accumulated_consumption, dt))
-                    # Start a new window, aligned to window size
                     current_window_start = milliseconds - (milliseconds % window_size_ms) 
                     accumulated_consumption = consumption_watts
                 else:
-                    # Add to the current window
                     accumulated_consumption += consumption_watts
-            elif not target_consumer_found_in_interval:
-                 debug_log["intervals_without_target"] += 1
-                 # print(f"DEBUG: Target type '{target_type}' not found in interval with host timestamp {host_interval.get('host',{}).get('timestamp')}")
                 
-        # Add the final accumulated point if it exists
         if current_window_start is not None and accumulated_consumption > 0:
             dt = self._convert_to_eet(current_window_start)
             processed_data.append((current_window_start, accumulated_consumption, dt))
             
-        # Convert processed data to DataFrame
         if not processed_data:
             print(f"WARNING: No processed data generated for target_type='{target_type}'. Returning empty DataFrame.") # DEBUG
             df = pd.DataFrame(columns=['timestamp', 'consumption', 'datetime'])
         else:
-            # Create DataFrame from the processed list which now includes datetime
             df = pd.DataFrame(processed_data, columns=['timestamp', 'consumption', 'datetime'])
             print(f"DEBUG: Generated DataFrame for '{target_type}' with {len(df)} rows.") # DEBUG
-
-        # --- Debug Logging --- 
-        debug_log["summary"] = {
-            "processed_count": len(debug_log["processed_consumer_entries"]),
-            "skipped_count": len(debug_log["skipped_consumers"]),
-            "intervals_without_target": debug_log["intervals_without_target"],
-            "total_windows_created": len(processed_data)
-        }
-        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        debug_log_filename = f"energy_processing_debug_{target_type}_{timestamp_str}.json"
-        try:
-            with open(debug_log_filename, 'w') as f:
-                json.dump(debug_log, f, indent=2, default=str) # Use default=str for non-serializable types if any
-            print(f"Debug log saved to {debug_log_filename}") # Changed status_var to print
-        except Exception as e:
-            print(f"Failed to save debug log: {str(e)}") # Changed status_var to print
-        # --- End Debug Logging ---
 
         return df
     
@@ -2356,7 +2003,7 @@ class ExperimentVisualizer:
             Datetime object in EET timezone
         """
         if is_milliseconds:
-            timestamp = timestamp / 1000  # Convert ms to seconds
+            timestamp = timestamp / 1000
             
         # Create UTC datetime object
         utc_dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
