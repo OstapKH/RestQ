@@ -6,72 +6,138 @@
     grid_time: "{{ experiment_duration | default('5:00:00') }}"
   tasks:
 
-    - name: Go to the frontend of {{ grid_site }} then create a job
+    # Reserve nodes for lille site (specific chifflot nodes + 1 other)
+    - name: Go to the frontend of {{ grid_site }} then create a job for chifflot nodes (lille site)
       command: "oarsub -l host=2,walltime={{ grid_time }} -r 'now' -t deploy -p 'host like chifflot-%'"
       register: job_output
+      when: grid_site == 'lille'
 
-    - name: Extract job ID for chifflot nodes
+    - name: Extract job ID for chifflot nodes (lille site)
       set_fact:
         chifflot_job_id: "{{ job_output.stdout | regex_search('OAR_JOB_ID=(\\d+)', '\\1') | first }}"
+      when: grid_site == 'lille'
 
-    - name: Log chifflot job ID
+    - name: Log chifflot job ID (lille site)
       debug:
         msg: "Chifflot Job ID: {{ chifflot_job_id }}"
+      when: grid_site == 'lille'
 
-    - name: Wait for chifflot reservation validation
+    - name: Wait for chifflot reservation validation (lille site)
       pause:
         minutes: 10
+      when: grid_site == 'lille'
 
-    - name: Get chifflot job details
+    - name: Get chifflot job details (lille site)
       command: "oarstat -f -j {{ chifflot_job_id }}"
       register: chifflot_job_details
+      when: grid_site == 'lille'
 
-    - name: Extract assigned chifflot hostnames
+    - name: Extract assigned chifflot hostnames (lille site)
       set_fact:
         chifflot_nodes: "{{ (chifflot_job_details.stdout | regex_search('assigned_hostnames = (.+)', '\\1')) | first | split('+') }}"
+      when: grid_site == 'lille'
 
-    - name: Log chifflot nodes
+    - name: Log chifflot nodes (lille site)
       debug:
         msg: "Chifflot nodes: {{ chifflot_nodes }}"
+      when: grid_site == 'lille'
 
-    - name: Reserve one additional node
+    - name: Reserve one additional node (lille site)
       command: "oarsub -l host=1,walltime={{ grid_time }} -r 'now' -t deploy"
       register: other_job_output
+      when: grid_site == 'lille'
 
-    - name: Extract job ID for other node
+    - name: Extract job ID for other node (lille site)
       set_fact:
         other_job_id: "{{ other_job_output.stdout | regex_search('OAR_JOB_ID=(\\d+)', '\\1') | first }}"
+      when: grid_site == 'lille'
 
-    - name: Log other job ID
+    - name: Log other job ID (lille site)
       debug:
         msg: "Other Job ID: {{ other_job_id }}"
+      when: grid_site == 'lille'
 
-    - name: Wait for other reservation validation
+    - name: Wait for other reservation validation (lille site)
       pause:
         minutes: 10
+      when: grid_site == 'lille'
 
-    - name: Get other job details
+    - name: Get other job details (lille site)
       command: "oarstat -f -j {{ other_job_id }}"
       register: other_job_details
+      when: grid_site == 'lille'
 
-    - name: Extract assigned other hostname
+    - name: Extract assigned other hostname (lille site)
       set_fact:
         other_node: "{{ (other_job_details.stdout | regex_search('assigned_hostnames = (.+)', '\\1')) | first }}"
+      when: grid_site == 'lille'
 
-    - name: Log other node
+    - name: Log other node (lille site)
       debug:
         msg: "Other node: {{ other_node }}"
+      when: grid_site == 'lille'
 
-    - name: Assign node names to variables
+    - name: Assign node names to variables (lille site)
       set_fact:
         node1: "{{ chifflot_nodes[0] }}"
         node2: "{{ chifflot_nodes[1] }}"
         node3: "{{ other_node }}"
         cacheable: true
+      when: grid_site == 'lille'
 
-    - name: Log node assignments
+    - name: Log node assignments (lille site)
       debug:
         msg: "Node1 (chifflot): {{ node1 }}, Node2 (chifflot): {{ node2 }}, Node3: {{ node3 }}"
+      when: grid_site == 'lille'
+
+    # Reserve nodes for non-lille sites (3 random nodes)
+    - name: Reserve 3 random nodes (non-lille sites)
+      command: "oarsub -l host=3,walltime={{ grid_time }} -r 'now' -t deploy"
+      register: random_job_output
+      when: grid_site != 'lille'
+
+    - name: Extract job ID for random nodes (non-lille sites)
+      set_fact:
+        random_job_id: "{{ random_job_output.stdout | regex_search('OAR_JOB_ID=(\\d+)', '\\1') | first }}"
+      when: grid_site != 'lille'
+
+    - name: Log random job ID (non-lille sites)
+      debug:
+        msg: "Random nodes Job ID: {{ random_job_id }}"
+      when: grid_site != 'lille'
+
+    - name: Wait for random nodes reservation validation (non-lille sites)
+      pause:
+        minutes: 10
+      when: grid_site != 'lille'
+
+    - name: Get random nodes job details (non-lille sites)
+      command: "oarstat -f -j {{ random_job_id }}"
+      register: random_job_details
+      when: grid_site != 'lille'
+
+    - name: Extract assigned random hostnames (non-lille sites)
+      set_fact:
+        random_nodes: "{{ (random_job_details.stdout | regex_search('assigned_hostnames = (.+)', '\\1')) | first | split('+') }}"
+      when: grid_site != 'lille'
+
+    - name: Log random nodes (non-lille sites)
+      debug:
+        msg: "Random nodes: {{ random_nodes }}"
+      when: grid_site != 'lille'
+
+    - name: Assign node names to variables (non-lille sites)
+      set_fact:
+        node1: "{{ random_nodes[0] }}"
+        node2: "{{ random_nodes[1] }}"
+        node3: "{{ random_nodes[2] }}"
+        cacheable: true
+      when: grid_site != 'lille'
+
+    - name: Log node assignments (non-lille sites)
+      debug:
+        msg: "Node1: {{ node1 }}, Node2: {{ node2 }}, Node3: {{ node3 }}"
+      when: grid_site != 'lille'
 
     - name: Add nodes to in-memory inventory
       add_host:
