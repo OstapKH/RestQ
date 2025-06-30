@@ -1,3 +1,0 @@
-[submodule "benchbase"]
-	path = benchbase
-	url = https://github.com/cmu-db/benchbase.git

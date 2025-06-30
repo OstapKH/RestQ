@@ -1,3 +1,0 @@
-# Large files (.zip and .tbl) are now hosted on Hugging Face instead of Git LFS
-# *.zip filter=lfs diff=lfs merge=lfs -text
-# *.tbl filter=lfs diff=lfs merge=lfs -text
