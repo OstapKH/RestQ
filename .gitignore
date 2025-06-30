@@ -45,9 +45,6 @@ Desktop.ini
 # Logs
 *.log
 
-# Environment
-.env
-.env.*
 
 # Ansible
 *.retry

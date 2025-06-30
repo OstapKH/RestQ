@@ -390,6 +390,9 @@
       shell: |
         cd {{ project_directory }}/ansible-benchmark/powerAPI-intel
         chmod +x setup-formula-config.sh
+        set -a  # Export all variables
+        source .env
+        set +a  # Stop exporting
         ./setup-formula-config.sh
       become: yes
       register: docker_compose_db
@@ -682,6 +685,9 @@
       shell: |
         cd {{ project_directory }}/ansible-benchmark/powerAPI-intel
         chmod +x setup-formula-config.sh
+        set -a  # Export all variables
+        source .env
+        set +a  # Stop exporting
         ./setup-formula-config.sh
       become: yes
       register: docker_compose_power
