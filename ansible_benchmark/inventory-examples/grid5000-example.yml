@@ -1,0 +1,49 @@
+all:
+  vars:
+    # ====================================
+    # Deployment Mode Configuration
+    # ====================================
+    deployment_mode: grid5000  # Grid5000 auto-allocation mode
+    
+    # ====================================
+    # Grid5000 Configuration
+    # ====================================
+    grid_site: lille  # Options: lille, nancy, rennes, grenoble, etc.
+    grid_time: '02:00:00'  # Reservation time (HH:MM:SS)
+    scaphandre_timestep_s: 1 # Timestep in seconds for power monitoring
+    ansible_ssh_private_key_file: ~/.ssh/grid5000_key
+    
+    # ====================================
+    # Benchmark Configuration 
+    # ====================================
+    benchmark_type: TPCC  # Options: TPCC, TPCH
+    scale_factor: "1.0"   # TPCC: warehouses, TPCH: data multiplier
+    
+    # ====================================
+    # Experiment Tracking
+    # ====================================
+    experiment_duration: '02:00:00'
+    timestamp: "{{ ansible_date_time.iso8601 }}"
+    
+
+  hosts:
+    grid5000:
+      ansible_host: "frontend.{{ grid_site }}.grid5000.fr"
+      
+    node1:
+      ansible_host: "{{ node1 | default('undefined') }}"
+      ansible_user: root
+      ansible_ssh_private_key_file: "{{ ansible_ssh_private_key_file }}"
+      ansible_connection: ssh
+        
+    node2:
+      ansible_host: "{{ node2 | default('undefined') }}"
+      ansible_user: root
+      ansible_ssh_private_key_file: "{{ ansible_ssh_private_key_file }}"
+      ansible_connection: ssh
+        
+    node3:
+      ansible_host: "{{ node3 | default('undefined') }}"
+      ansible_user: root
+      ansible_ssh_private_key_file: "{{ ansible_ssh_private_key_file }}"
+      ansible_connection: ssh 

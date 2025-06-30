@@ -1,0 +1,140 @@
+all:
+  vars:
+    # ====================================
+    # Deployment Mode Configuration
+    # ====================================
+    # Deployment modes: 
+    # - grid5000: Auto-allocate nodes on Grid5000
+    # - manual: Use manually specified nodes
+    # - localhost: Run everything on current laptop
+    deployment_mode: grid5000  # Options: grid5000, manual, localhost
+    
+    # ====================================
+    # Grid5000 Configuration (for grid5000 mode)
+    # ====================================
+    grid_site: lille
+    grid_time: '02:00:00'
+    scaphandre_timestep_s: 1 # Timestep in seconds for power monitoring
+    ansible_ssh_private_key_file_g5k: ~/.ssh/grid5000_key
+    
+    # ====================================
+    # Manual Node Configuration (for manual mode)
+    # ====================================
+    # Define your own nodes when deployment_mode: manual
+    manual_nodes:
+      node1_host: "192.168.1.100"  # Database Server
+      node2_host: "192.168.1.101"  # API Server  
+      node3_host: "192.168.1.102"  # Benchmark Client
+      ssh_user: "ubuntu"           # SSH username for manual nodes
+      ssh_key: "~/.ssh/id_rsa"     # SSH private key for manual nodes
+    
+    # ====================================
+    # Localhost Configuration (for localhost mode)
+    # ====================================
+    # Ports for localhost deployment
+    localhost_ports:
+      postgres_port: 5432
+      api_port: 8086
+      mongodb_port: 27017
+    
+    # ====================================
+    # Repository Configuration
+    # ====================================
+    # GitHub repository URL for RestQFramework
+    github_repo_url: "https://github.com/OstapKH/RestQ.git"
+    project_directory: "/root/RestQ"
+    
+    # ====================================
+    # Database Dump Configuration
+    # ====================================
+    # Choose between using pre-made dumps or benchbase fulfillment
+    # Options: dumps, benchbase, huggingface
+    database_source: huggingface  # Use 'huggingface' to download from Hugging Face, 'dumps' for local, 'benchbase' for fulfillment.
+    
+    # Configuration for Hugging Face
+    huggingface_repo: "OstapK/tpch_sc_f_1"
+
+    # Dump file naming convention: {benchmark_type}_sc_f_{scale_factor}.zip
+    # Examples: tpch_sc_f_1.zip, tpcc_sc_f_1.zip, tpch_sc_f_10.zip
+    dumps_directory: "{{ project_directory }}/sql_dumps/postgresql"
+    
+    # ====================================
+    # Benchmark Configuration 
+    # ====================================
+    # Benchmark Type: TPCC (transaction processing) or TPCH (decision support)
+    # Options: TPCC, TPCH
+    benchmark_type: TPCH
+    
+    # Scale Factor: 
+    # - For TPCC: number of warehouses (must be integer like 1.0, 5.0)
+    # - For TPCH: data size multiplier (0.01, 0.1, 1.0, 10.0)  
+    scale_factor: "1.0"
+    
+    # ====================================
+    # Experiment Tracking
+    # ====================================
+    # Experiment duration (used for grid reservation time)
+    experiment_duration: '02:00:00'
+    
+    # Use a static timestamp that will be consistent across all nodes
+    # You can modify this for each experiment run
+    timestamp: "{{ ansible_date_time.iso8601 }}"
+
+    # Set connection variables based on deployment mode
+    ansible_user: >-
+      {%- if deployment_mode == 'grid5000' -%}
+      root
+      {%- elif deployment_mode == 'manual' -%}
+      {{ manual_nodes.ssh_user }}
+      {%- elif deployment_mode == 'localhost' -%}
+      {{ ansible_env.USER }}
+      {%- endif -%}
+    ansible_ssh_private_key_file: >-
+      {%- if deployment_mode == 'grid5000' -%}
+      {{ ansible_ssh_private_key_file_g5k }}
+      {%- elif deployment_mode == 'manual' -%}
+      {{ manual_nodes.ssh_key }}
+      {%- endif -%}
+    ansible_connection: >-
+      {%- if deployment_mode == 'localhost' -%}
+      local
+      {%- else -%}
+      ssh
+      {%- endif -%}
+
+  hosts:
+    # Grid5000 frontend (only used in grid5000 mode)
+    grid5000:
+      ansible_host: "frontend.{{ grid_site }}.grid5000.fr"
+      ansible_user: oskilbaso
+      
+    # Dynamic node configuration based on deployment_mode
+    node1:
+      ansible_host: >-
+        {%- if deployment_mode == 'grid5000' -%}
+        {{ hostvars['grid5000']['node1'] }}
+        {%- elif deployment_mode == 'manual' -%}
+        {{ manual_nodes.node1_host }}
+        {%- elif deployment_mode == 'localhost' -%}
+        localhost
+        {%- endif -%}
+        
+    node2:
+      ansible_host: >-
+        {%- if deployment_mode == 'grid5000' -%}
+        {{ hostvars['grid5000']['node2'] }}
+        {%- elif deployment_mode == 'manual' -%}
+        {{ manual_nodes.node2_host }}
+        {%- elif deployment_mode == 'localhost' -%}
+        localhost
+        {%- endif -%}
+        
+    node3:
+      ansible_host: >-
+        {%- if deployment_mode == 'grid5000' -%}
+        {{ hostvars['grid5000']['node3'] }}
+        {%- elif deployment_mode == 'manual' -%}
+        {{ manual_nodes.node3_host }}
+        {%- elif deployment_mode == 'localhost' -%}
+        localhost
+        {%- endif -%} 
