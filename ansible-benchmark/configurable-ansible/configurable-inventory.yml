@@ -12,7 +12,7 @@ all:
     # ====================================
     # Grid5000 Configuration (for grid5000 mode)
     # ====================================
-    grid_site: nancy
+    grid_site: lille
     grid_time: '02:00:00'
     scaphandre_timestep_s: 1 # Timestep in seconds for power monitoring
     ansible_ssh_private_key_file_g5k: ~/.ssh/grid5000_key
