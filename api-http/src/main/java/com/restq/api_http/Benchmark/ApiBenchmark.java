@@ -67,21 +67,6 @@ public class ApiBenchmark {
 
     public static void main(String[] args) throws IOException, InterruptedException {
         try {
-            // Read benchmark type from environment variable or system property
-            BENCHMARK_TYPE = System.getProperty("benchmark.type", 
-                            System.getenv("BENCHMARK_TYPE") != null ? 
-                            System.getenv("BENCHMARK_TYPE") : "TPCH");
-            
-            // Set the appropriate API endpoint based on benchmark type
-            if ("TPCC".equalsIgnoreCase(BENCHMARK_TYPE)) {
-                BASE_URL = "http://localhost:8086/api/tpcc";
-            } else if ("TPCH".equalsIgnoreCase(BENCHMARK_TYPE)) {
-                BASE_URL = "http://localhost:8086/api/reports";
-            } else {
-                logger.warn("Unknown benchmark type: {}. Defaulting to TPCH", BENCHMARK_TYPE);
-                BENCHMARK_TYPE = "TPCH";
-                BASE_URL = "http://localhost:8086/api/reports";
-            }
             
             logger.info("Starting {} benchmark with API endpoint: {}", BENCHMARK_TYPE, BASE_URL);
             

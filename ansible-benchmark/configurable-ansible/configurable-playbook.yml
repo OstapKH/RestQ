@@ -789,15 +789,14 @@
     - name: Modify API port URL in ApiBenchmark.java
       lineinfile:
         path: "{{ project_directory }}/api-http/src/main/java/com/restq/api_http/Benchmark/ApiBenchmark.java"
-        regexp: '^    private static final String BASE_URL =.*'
-        line: "    private static final String BASE_URL = \"http://{{ hostvars['node2'].ansible_host }}:8086/api/{{ 'tpcc' if benchmark_type == 'TPCC' else 'reports' }}\";"
+        regexp: '^    private static String BASE_URL =.*'
+        line: "    private static String BASE_URL = \"http://{{ hostvars['node2'].ansible_host }}:8086/api/{{ 'tpcc' if benchmark_type == 'TPCC' else 'reports' }}\";"
 
     - name: Configure benchmark parameters in ApiBenchmark.java
       lineinfile:
         path: "{{ project_directory }}/api-http/src/main/java/com/restq/api_http/Benchmark/ApiBenchmark.java"
-        regexp: '^    private static final String BENCHMARK_TYPE =.*'
-        line: "    private static final String BENCHMARK_TYPE = \"{{ benchmark_type }}\";"
-        insertafter: "BASE_URL"
+        regexp: '^    private static String BENCHMARK_TYPE =.*'
+        line: "    private static String BENCHMARK_TYPE = \"{{ benchmark_type }}\";"
 
     - name: Build Benchmark module
       shell: |
