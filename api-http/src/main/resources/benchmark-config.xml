@@ -224,7 +224,7 @@
         <probability endpoint="revenue-increase">0.0</probability>
     </probabilities>
 </experiment>
-<experiment>
+<!-- <experiment>
     <experiment_name>EXP_11</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
@@ -393,6 +393,6 @@
         <probability endpoint="local-supplier-volume">0.0</probability>
         <probability endpoint="revenue-increase">0.0</probability>
     </probabilities>
-</experiment>
+</experiment> -->
 
 </benchmark-config> 
