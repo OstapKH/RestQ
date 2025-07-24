@@ -58,8 +58,8 @@
     <experiment_name>EXP_1</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>5</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>1</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -75,8 +75,8 @@
     <experiment_name>EXP_2</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>15</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>2</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -92,8 +92,8 @@
     <experiment_name>EXP_3</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>25</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>3</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -109,8 +109,8 @@
     <experiment_name>EXP_4</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>35</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>4</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -126,8 +126,8 @@
     <experiment_name>EXP_5</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>45</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>5</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -143,8 +143,8 @@
     <experiment_name>EXP_6</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>55</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>6</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -160,8 +160,8 @@
     <experiment_name>EXP_7</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>65</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>7</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -177,8 +177,8 @@
     <experiment_name>EXP_8</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>75</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>8</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -194,8 +194,8 @@
     <experiment_name>EXP_9</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>85</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>9</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -211,8 +211,8 @@
     <experiment_name>EXP_10</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>95</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>10</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -228,8 +228,8 @@
     <experiment_name>EXP_11</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>105</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>11</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -245,8 +245,8 @@
     <experiment_name>EXP_12</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>115</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>12</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -262,8 +262,8 @@
     <experiment_name>EXP_13</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>125</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>13</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -279,8 +279,8 @@
     <experiment_name>EXP_14</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>135</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>14</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -296,8 +296,8 @@
     <experiment_name>EXP_15</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>145</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>15</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -313,8 +313,8 @@
     <experiment_name>EXP_16</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>155</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>16</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -330,8 +330,8 @@
     <experiment_name>EXP_17</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>165</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>17</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -347,8 +347,8 @@
     <experiment_name>EXP_18</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>175</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>18</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -364,8 +364,8 @@
     <experiment_name>EXP_19</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>185</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>19</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
@@ -381,8 +381,8 @@
     <experiment_name>EXP_20</experiment_name>
     <runs>3</runs>
     <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>2</connections>
-    <requests-per-second>195</requests-per-second>
+    <connections>10</connections>
+    <requests-per-second>20</requests-per-second>
     <duration-seconds>30</duration-seconds>
     
     <probabilities>
