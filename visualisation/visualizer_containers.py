@@ -14,15 +14,90 @@ import matplotlib.dates as mdates
 import matplotlib.ticker as mticker
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import threading
+import time
+
+class LoadingWindow:
+    """A loading window that shows progress while data is being loaded."""
+    
+    def __init__(self, parent):
+        self.parent = parent
+        self.window = None
+        self.is_loading = False
+        
+    def show(self, message="Loading data..."):
+        """Show the loading window with the specified message."""
+        if self.window is not None:
+            return
+            
+        self.is_loading = True
+        self.window = tk.Toplevel(self.parent)
+        self.window.title("Loading")
+        self.window.geometry("300x150")
+        self.window.resizable(False, False)
+        
+        # Center the window
+        self.window.transient(self.parent)
+        self.window.grab_set()
+        
+        # Make it modal
+        self.window.focus_set()
+        self.window.wait_visibility()
+        self.window.grab_set()
+        
+        # Create content
+        main_frame = ttk.Frame(self.window, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Loading message
+        self.message_label = ttk.Label(main_frame, text=message, font=("Arial", 12))
+        self.message_label.pack(pady=(0, 20))
+        
+        # Progress bar
+        self.progress = ttk.Progressbar(main_frame, mode='indeterminate')
+        self.progress.pack(fill=tk.X, pady=(0, 10))
+        self.progress.start()
+        
+        # Status label
+        self.status_label = ttk.Label(main_frame, text="Please wait...", font=("Arial", 10))
+        self.status_label.pack()
+        
+        # Update the window
+        self.window.update()
+        
+    def update_message(self, message):
+        """Update the loading message."""
+        if self.window is not None:
+            self.message_label.config(text=message)
+            self.window.update()
+            
+    def update_status(self, status):
+        """Update the status message."""
+        if self.window is not None:
+            self.status_label.config(text=status)
+            self.window.update()
+            
+    def hide(self):
+        """Hide the loading window."""
+        if self.window is not None:
+            self.is_loading = False
+            self.progress.stop()
+            self.window.destroy()
+            self.window = None
 
 class ExperimentVisualizer:
     def __init__(self, root):
         self.root = root
         self.root.title("Experiment Visualizer")
-        self.data = None
-        self.mongodb_data = None
-        self.mongodb_api_data = None
-        self.mongodb_db_data = None
+        
+        # Initialize loading window
+        self.loading_window = LoadingWindow(self.root)
+        
+        self.data = None # This will hold data from combined_results.json
+        self.experiment_info = None # This will hold data from experiment_info.json
+        self.mongodb_api_data = None # Raw data from mongodump-API-server.json
+        self.mongodb_db_data = None # Raw data from mongodump-DB-server.json
+        
         self.api_container_id = None
         self.db_container_id = None
         self.display_timezone = pytz.timezone('Europe/Helsinki')
@@ -44,14 +119,14 @@ class ExperimentVisualizer:
         self.setup_main_content_area()
         
         self.status_var = tk.StringVar()
-        self.status_var.set("Ready. Please load a data file.")
+        self.status_var.set("Ready. Please load a data folder.")
         self.status_bar = ttk.Label(root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
     
     def setup_menu(self):
         menu_bar = tk.Menu(self.root)
         file_menu = tk.Menu(menu_bar, tearoff=0)
-        file_menu.add_command(label="Load Data", command=self.load_data)
+        file_menu.add_command(label="Load Data Folder", command=self.load_folder) # Changed
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
         menu_bar.add_cascade(label="File", menu=file_menu)
@@ -84,7 +159,7 @@ class ExperimentVisualizer:
         self.info_tab_button.pack(side=tk.LEFT, padx=(0, 20))
         
         style.configure('Big.TButton', font=('Arial', 11, 'bold'))
-        load_button = ttk.Button(tab_frame, text="Load Data", command=self.load_data, style='Big.TButton')
+        load_button = ttk.Button(tab_frame, text="Load Data Folder", command=self.load_folder, style='Big.TButton') # Changed
         load_button.pack(side=tk.RIGHT)
         
         exp_frame = ttk.Frame(top_frame)
@@ -124,32 +199,32 @@ class ExperimentVisualizer:
         
         self.mongodb_api_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(api_frame, text="API Energy",
-                       variable=self.mongodb_api_var).pack(side=tk.LEFT, padx=3)
-        self.mongodb_api_file_var = tk.StringVar()
-        ttk.Entry(api_frame, textvariable=self.mongodb_api_file_var, width=20).pack(side=tk.LEFT, padx=3)
-        ttk.Button(api_frame, text="Browse", 
-                  command=lambda: self._browse_mongodb_file("api")).pack(side=tk.LEFT, padx=3)
+                       variable=self.mongodb_api_var, command=self.force_plot_update).pack(side=tk.LEFT, padx=3)
+        self.mongodb_api_file_var = tk.StringVar(value="No file loaded")
+        # Changed from Entry with browse button to a read-only Entry displaying filename
+        ttk.Entry(api_frame, textvariable=self.mongodb_api_file_var, width=25, state="readonly").pack(side=tk.LEFT, padx=3)
         
         self.mongodb_api_target_var = tk.StringVar()
         self.mongodb_api_target_combo = ttk.Combobox(api_frame, textvariable=self.mongodb_api_target_var, 
                                                     state="readonly", width=25)
         self.mongodb_api_target_combo.pack(side=tk.LEFT, padx=3)
+        self.mongodb_api_target_combo.bind("<<ComboboxSelected>>", lambda e: self.force_plot_update())
         
         db_frame = ttk.Frame(mongodb_frame)
         db_frame.pack(fill=tk.X, padx=3, pady=2)
         
         self.mongodb_db_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(db_frame, text="DB Energy",
-                       variable=self.mongodb_db_var).pack(side=tk.LEFT, padx=3)
-        self.mongodb_db_file_var = tk.StringVar()
-        ttk.Entry(db_frame, textvariable=self.mongodb_db_file_var, width=20).pack(side=tk.LEFT, padx=3)
-        ttk.Button(db_frame, text="Browse", 
-                  command=lambda: self._browse_mongodb_file("db")).pack(side=tk.LEFT, padx=3)
+                       variable=self.mongodb_db_var, command=self.force_plot_update).pack(side=tk.LEFT, padx=3)
+        self.mongodb_db_file_var = tk.StringVar(value="No file loaded")
+        # Changed from Entry with browse button to a read-only Entry displaying filename
+        ttk.Entry(db_frame, textvariable=self.mongodb_db_file_var, width=25, state="readonly").pack(side=tk.LEFT, padx=3)
         
         self.mongodb_db_target_var = tk.StringVar()
         self.mongodb_db_target_combo = ttk.Combobox(db_frame, textvariable=self.mongodb_db_target_var, 
                                                    state="readonly", width=25)
         self.mongodb_db_target_combo.pack(side=tk.LEFT, padx=3)
+        self.mongodb_db_target_combo.bind("<<ComboboxSelected>>", lambda e: self.force_plot_update())
         
         plot_area_frame = ttk.Frame(self.plot_frame)
         plot_area_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -288,25 +363,157 @@ class ExperimentVisualizer:
         """Reset the plot view to default - Placeholder for future implementation"""
         self.status_var.set("Plot view reset functionality will be implemented in the future")
 
-    # def setup_left_panel(self):
-    #     pass
-
-    # def setup_right_panel(self):
-    #     pass
-
-    def load_data(self):
-        file_path = filedialog.askopenfilename(
-            title="Select Data File",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-        )
-        
-        if not file_path:
+    def load_folder(self):
+        """Load all necessary data files from a selected folder."""
+        folder_path = filedialog.askdirectory(title="Select Experiment Data Folder")
+        if not folder_path:
             return
+
+        # Show loading window
+        self.loading_window.show(f"Loading data from {os.path.basename(folder_path)}...")
         
+        # Start loading in a separate thread
+        loading_thread = threading.Thread(target=self._load_folder_threaded, args=(folder_path,))
+        loading_thread.daemon = True
+        loading_thread.start()
+
+    def _load_folder_threaded(self, folder_path):
+        """Load data files in a separate thread to prevent GUI freezing."""
         try:
-            self.status_var.set(f"Loading data from {os.path.basename(file_path)}...")
-            self.root.update_idletasks()
+            self.loading_window.update_status("Preparing to load data...")
             
+            combined_results_path = os.path.join(folder_path, "combined_results.json")
+            experiment_info_path = os.path.join(folder_path, "experiment_info.json")
+            powerapi_api_path = os.path.join(folder_path, "mongodump-API-server.json")
+            powerapi_db_path = os.path.join(folder_path, "mongodump-DB-server.json")
+
+            # Reset existing data
+            self.data = None
+            self.experiment_info = None
+            self.mongodb_api_data = None
+            self.mongodb_db_data = None
+            self.api_container_id = None
+            self.db_container_id = None
+            
+            # Update UI elements in main thread
+            self.root.after(0, self._reset_ui_elements)
+            
+            all_files_loaded = True
+            
+            # Load experiment_info.json first to get container IDs
+            self.loading_window.update_status("Loading experiment info...")
+            if os.path.exists(experiment_info_path):
+                if not self._load_experiment_info_json(experiment_info_path):
+                    all_files_loaded = False
+            else:
+                self.root.after(0, lambda: messagebox.showwarning("Missing File", f"'{os.path.basename(experiment_info_path)}' not found in selected folder. Cannot extract container IDs for PowerAPI filtering."))
+                all_files_loaded = False 
+
+            # Load combined_results.json
+            self.loading_window.update_status("Loading benchmark results...")
+            if os.path.exists(combined_results_path):
+                if not self._load_combined_results_json(combined_results_path):
+                    all_files_loaded = False
+            else:
+                self.root.after(0, lambda: messagebox.showerror("Missing File", f"'{os.path.basename(combined_results_path)}' not found in selected folder. Benchmark results will be unavailable."))
+                all_files_loaded = False
+
+            # Load PowerAPI API data
+            self.loading_window.update_status("Loading PowerAPI API data...")
+            if os.path.exists(powerapi_api_path):
+                self.root.after(0, lambda: self.mongodb_api_file_var.set(os.path.basename(powerapi_api_path)))
+                if not self._load_mongodb_data(powerapi_api_path, "api"):
+                    self.root.after(0, lambda: self.mongodb_api_var.set(False))
+            else:
+                self.root.after(0, lambda: messagebox.showwarning("Missing File", f"'{os.path.basename(powerapi_api_path)}' not found. PowerAPI API data will not be available."))
+                self.root.after(0, lambda: self.mongodb_api_var.set(False))
+
+            # Load PowerAPI DB data
+            self.loading_window.update_status("Loading PowerAPI DB data...")
+            if os.path.exists(powerapi_db_path):
+                self.root.after(0, lambda: self.mongodb_db_file_var.set(os.path.basename(powerapi_db_path)))
+                if not self._load_mongodb_data(powerapi_db_path, "db"):
+                    self.root.after(0, lambda: self.mongodb_db_var.set(False))
+            else:
+                self.root.after(0, lambda: messagebox.showwarning("Missing File", f"'{os.path.basename(powerapi_db_path)}' not found. PowerAPI DB data will not be available."))
+                self.root.after(0, lambda: self.mongodb_db_var.set(False))
+
+            # Finalize loading
+            self.loading_window.update_status("Finalizing...")
+            
+            if all_files_loaded and self.data:
+                self.root.after(0, lambda: self.status_var.set(f"Successfully loaded data from {os.path.basename(folder_path)}"))
+                self.root.after(0, lambda: self.on_experiment_selected(None))
+            elif self.data:
+                self.root.after(0, lambda: self.status_var.set(f"Loaded main data, but some files from {os.path.basename(folder_path)} had issues. Check warnings."))
+                self.root.after(0, lambda: self.on_experiment_selected(None))
+            else:
+                self.root.after(0, lambda: self.status_var.set(f"Failed to load essential data from {os.path.basename(folder_path)}. Please check the folder content."))
+                self.root.after(0, lambda: self._clear_plot_and_info())
+
+        except Exception as e:
+            self.root.after(0, lambda: messagebox.showerror("Error", f"An error occurred while loading data: {str(e)}"))
+            self.root.after(0, lambda: self.status_var.set("Error loading data"))
+        finally:
+            # Hide loading window
+            self.root.after(0, self.loading_window.hide)
+
+    def _reset_ui_elements(self):
+        """Reset UI elements in the main thread."""
+        self.mongodb_api_file_var.set("No file loaded")
+        self.mongodb_db_file_var.set("No file loaded")
+        self.mongodb_api_target_combo['values'] = []
+        self.mongodb_api_target_var.set("")
+        self.mongodb_db_target_combo['values'] = []
+        self.mongodb_db_target_var.set("")
+        self.experiment_selector['values'] = []
+        self.experiment_var.set("")
+        
+        for widget in self.details_frame.winfo_children():
+            widget.destroy()
+        self.fig.clear()
+        self.canvas.draw()
+
+    def _clear_plot_and_info(self):
+        """Clear plot and info in the main thread."""
+        self.fig.clear()
+        self.canvas.draw()
+        for widget in self.details_frame.winfo_children():
+            widget.destroy()
+    
+    def _load_experiment_info_json(self, file_path):
+        """Loads experiment_info.json and extracts container IDs."""
+        try:
+            with open(file_path, 'r') as file:
+                self.experiment_info = json.load(file)
+            
+            if not isinstance(self.experiment_info, dict):
+                messagebox.showerror("Error", f"Invalid format for '{os.path.basename(file_path)}': Expected a dictionary.")
+                self.experiment_info = None
+                return False
+
+            self.api_container_id = self.experiment_info.get("api_container_id")
+            self.db_container_id = self.experiment_info.get("db_container_id")
+
+            if not self.api_container_id or not self.db_container_id:
+                messagebox.showwarning("Warning", f"'{os.path.basename(file_path)}' missing 'api_container_id' or 'db_container_id'. PowerAPI filtering might be inaccurate.")
+                print(f"WARNING: Missing 'api_container_id' or 'db_container_id' in '{file_path}'. API={self.api_container_id}, DB={self.db_container_id}") # DEBUG
+            else:
+                print(f"DEBUG: Loaded container IDs from '{file_path}': API={self.api_container_id}, DB={self.db_container_id}") # DEBUG
+            
+            return True
+        except json.JSONDecodeError as e:
+            messagebox.showerror("Error", f"Failed to parse JSON from '{os.path.basename(file_path)}': {e}")
+            self.experiment_info = None
+            return False
+        except Exception as e:
+            messagebox.showerror("Error", f"An error occurred loading '{os.path.basename(file_path)}': {e}")
+            self.experiment_info = None
+            return False
+
+    def _load_combined_results_json(self, file_path):
+        """Loads combined_results.json, formerly 'load_data'."""
+        try:
             print(f"Attempting to load JSON from: {file_path}") # DEBUG
             with open(file_path, 'r') as file:
                 self.data = json.load(file)
@@ -325,24 +532,12 @@ class ExperimentVisualizer:
                  print(f"ERROR: The file is missing the following expected top-level keys: {missing_keys}") # DEBUG
                  messagebox.showerror("Error", f"The file does not have the expected structure or is missing required keys: {', '.join(missing_keys)}")
                  self.data = None
-                 self.status_var.set("Error: Invalid file structure.")
-                 return
+                 return False
             
             print("File structure check passed. Found all expected keys.") # DEBUG
             
-            if "container_info" in self.data and isinstance(self.data["container_info"], dict):
-                self.api_container_id = self.data["container_info"].get("api_container_id")
-                self.db_container_id = self.data["container_info"].get("db_container_id")
-                print(f"Found container IDs: API={self.api_container_id}, DB={self.db_container_id}") # DEBUG
-                if not self.api_container_id or not self.db_container_id:
-                    print("WARNING: Missing 'api_container_id' or 'db_container_id' within 'container_info'. Energy filtering might fail.") # DEBUG
-                    self.status_var.set("Warning: Missing container IDs in data.")
-            else:
-                 print("WARNING: 'container_info' key not found or not a dictionary. Cannot extract container IDs.") # DEBUG
-                 self.status_var.set("Warning: Container info missing, cannot link energy data.")
-                 self.api_container_id = None
-                 self.db_container_id = None
-
+            # Container info is now loaded from experiment_info.json, no longer parsed here.
+            
             if "benchmark_results" in self.data and isinstance(self.data["benchmark_results"], dict) and "experiments" in self.data["benchmark_results"] and isinstance(self.data["benchmark_results"]["experiments"], dict):
                 experiments = self.data["benchmark_results"]["experiments"]
                 experiment_ids = list(experiments.keys())
@@ -350,15 +545,17 @@ class ExperimentVisualizer:
                 
                 all_data_option = "All data"
                 all_experiments_option = "All Experiments"
-                self.experiment_selector['values'] = [all_data_option, all_experiments_option] + experiment_ids
+                all_experiments_no_warmup_option = "All Experiments without warmup"
+                self.experiment_selector['values'] = [all_data_option, all_experiments_option, all_experiments_no_warmup_option] + experiment_ids
                 
                 self.experiment_selector.current(0)
                 self.experiment_var.set(all_data_option)
-                self.on_experiment_selected(None)
                 
                 self.status_var.set(f"Loaded {len(experiment_ids)} experiments from {os.path.basename(file_path)}")
+                return True
             else:
                 print("ERROR: 'benchmark_results' key found, but it does not contain a valid 'experiments' dictionary.") # DEBUG
+                err_msg = "Unknown structure issue with 'benchmark_results'."
                 if "benchmark_results" not in self.data:
                     err_msg = "'benchmark_results' key is missing."
                 elif not isinstance(self.data["benchmark_results"], dict):
@@ -367,33 +564,31 @@ class ExperimentVisualizer:
                     err_msg = "'experiments' key is missing within 'benchmark_results'."
                 elif not isinstance(self.data["benchmark_results"]["experiments"], dict):
                     err_msg = "'experiments' within 'benchmark_results' is not a dictionary."
-                else:
-                    err_msg = "Unknown structure issue with 'benchmark_results'."
                     
-                messagebox.showerror("Error", f"No valid experiments found in the data file.\nReason: {err_msg}")
+                messagebox.showerror("Error", f"No valid experiments found in the data file ({os.path.basename(file_path)}).\nReason: {err_msg}")
                 self.status_var.set("No experiments found in the data file.")
                 self.experiment_selector['values'] = []
                 self.experiment_var.set("")
-                for widget in self.details_frame.winfo_children():
-                    widget.destroy()
-                self.fig.clear()
-                self.canvas.draw()
+                self.data = None
+                return False
                 
         except json.JSONDecodeError as e:
             print(f"ERROR: Failed to decode JSON from file: {file_path}\nError: {e}") # DEBUG
-            messagebox.showerror("Error", f"Failed to parse JSON file: {str(e)}\nPlease check the file content.")
+            messagebox.showerror("Error", f"Failed to parse JSON file ({os.path.basename(file_path)}): {str(e)}\nPlease check the file content.")
             self.status_var.set("Error loading data file: Invalid JSON")
             self.data = None
+            return False
         except Exception as e:
             print(f"ERROR: An unexpected error occurred during data loading: {e}") # DEBUG
             import traceback
             traceback.print_exc()
-            messagebox.showerror("Error", f"Failed to load data: {str(e)}")
+            messagebox.showerror("Error", f"Failed to load data from {os.path.basename(file_path)}: {str(e)}")
             self.status_var.set("Error loading data file")
             self.data = None
+            return False
     
     def on_experiment_selected(self, event):
-        if not self.data or not self.experiment_var.get():
+        if not self.data and not self.experiment_info: # Ensure at least some data is loaded
             return
             
         selected_experiment = self.experiment_var.get()
@@ -401,12 +596,37 @@ class ExperimentVisualizer:
         for widget in self.details_frame.winfo_children():
             widget.destroy()
             
+        row = 0
+        
+        # Display general experiment info from experiment_info.json if available
+        if self.experiment_info:
+            ttk.Label(self.details_frame, text="Experiment Configuration:", font=("Arial", 10, "bold")).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
+            row += 1
+            for key, value in self.experiment_info.items():
+                ttk.Label(self.details_frame, text=f"{key.replace('_', ' ').title()}:").grid(row=row, column=0, sticky=tk.W, padx=15, pady=2)
+                ttk.Label(self.details_frame, text=f"{value}").grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
+                row += 1
+            row += 1 # Add a separator space
+            ttk.Separator(self.details_frame, orient='horizontal').grid(row=row, column=0, columnspan=2, sticky='ew', padx=5, pady=5)
+            row += 1
+        else:
+            ttk.Label(self.details_frame, text="Experiment Configuration: (Not Loaded)", font=("Arial", 10, "bold")).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
+            row += 1
+            ttk.Separator(self.details_frame, orient='horizontal').grid(row=row, column=0, columnspan=2, sticky='ew', padx=5, pady=5)
+            row += 1
+            
+        if not self.data: # If combined_results.json was not loaded
+            ttk.Label(self.details_frame, text="No benchmark results data available.", font=("Arial", 10)).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
+            self.status_var.set("No benchmark results data loaded.")
+            self.fig.clear()
+            self.canvas.draw()
+            return
+            
         if selected_experiment == "All data":
             if "benchmark_results" in self.data and "experiments" in self.data["benchmark_results"]:
                 experiments = self.data["benchmark_results"]["experiments"]
                 
-                row = 0
-                ttk.Label(self.details_frame, text="All Data Summary", font=("Arial", 12, "bold")).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
+                ttk.Label(self.details_frame, text="Benchmark Results Summary (All Data):", font=("Arial", 10, "bold")).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
                 row += 1
                 
                 ttk.Label(self.details_frame, text="Displaying all available energy data without time filtering", font=("Arial", 10)).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
@@ -418,10 +638,10 @@ class ExperimentVisualizer:
                 api_energy_count = len(self.data.get("api_server_energy", []))
                 db_energy_count = len(self.data.get("db_server_energy", []))
                 
-                ttk.Label(self.details_frame, text=f"API Server Energy Entries: {api_energy_count}", font=("Arial", 10)).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
+                ttk.Label(self.details_frame, text=f"Scaphandre API Server Energy Entries: {api_energy_count}", font=("Arial", 10)).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
                 row += 1
                 
-                ttk.Label(self.details_frame, text=f"DB Server Energy Entries: {db_energy_count}", font=("Arial", 10)).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
+                ttk.Label(self.details_frame, text=f"Scaphandre DB Server Energy Entries: {db_energy_count}", font=("Arial", 10)).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
                 row += 1
                 
                 self.update_plot()
@@ -432,8 +652,7 @@ class ExperimentVisualizer:
                 experiments = self.data["benchmark_results"]["experiments"]
                 
                 # Display a summary of all experiments
-                row = 0
-                ttk.Label(self.details_frame, text="All Experiments Summary", font=("Arial", 12, "bold")).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
+                ttk.Label(self.details_frame, text="Benchmark Results Summary (All Experiments):", font=("Arial", 10, "bold")).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
                 row += 1
                 
                 ttk.Label(self.details_frame, text=f"Total Experiments: {len(experiments)}", font=("Arial", 10)).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
@@ -464,15 +683,53 @@ class ExperimentVisualizer:
                 self.update_plot()
                 return
         
+        elif selected_experiment == "All Experiments without warmup":
+            if "benchmark_results" in self.data and "experiments" in self.data["benchmark_results"]:
+                experiments = self.data["benchmark_results"]["experiments"]
+                
+                # Filter out experiments with "warmup" in their name
+                filtered_experiments = {exp_id: exp_data for exp_id, exp_data in experiments.items() 
+                                     if "warmup" not in exp_id.lower()}
+                
+                # Display a summary of filtered experiments
+                ttk.Label(self.details_frame, text="Benchmark Results Summary (All Experiments without warmup):", font=("Arial", 10, "bold")).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
+                row += 1
+                
+                ttk.Label(self.details_frame, text=f"Total Experiments: {len(filtered_experiments)} (filtered from {len(experiments)})", font=("Arial", 10)).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
+                row += 1
+                
+                # Add a brief overview of each filtered experiment
+                for exp_id, exp_data in filtered_experiments.items():
+                    ttk.Label(self.details_frame, text=f"Experiment: {exp_id}", font=("Arial", 10, "bold")).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
+                    row += 1
+                    
+                    runs_count = len(exp_data.get("runs", []))
+                    ttk.Label(self.details_frame, text=f"Runs: {runs_count}", font=("Arial", 10)).grid(row=row, column=0, sticky=tk.W, padx=20, pady=2)
+                    row += 1
+                    
+                    if "duration_seconds" in exp_data:
+                        ttk.Label(self.details_frame, text=f"Duration: {exp_data['duration_seconds']} seconds", font=("Arial", 10)).grid(row=row, column=0, sticky=tk.W, padx=20, pady=2)
+                        row += 1
+                    
+                    if "requests_per_second" in exp_data:
+                        ttk.Label(self.details_frame, text=f"Rate: {exp_data['requests_per_second']} req/s", font=("Arial", 10)).grid(row=row, column=0, sticky=tk.W, padx=20, pady=2)
+                        row += 1
+                    
+                    # Add a separator
+                    ttk.Separator(self.details_frame, orient='horizontal').grid(row=row, column=0, columnspan=2, sticky='ew', padx=5, pady=5)
+                    row += 1
+                
+                # Update the plot with filtered experiments
+                self.update_plot()
+                return
+        
         # Regular single experiment selection
         experiment = self.data["benchmark_results"]["experiments"].get(selected_experiment, {})
         if not experiment:
             return
             
-        row = 0
-        
         # Show experiment details
-        ttk.Label(self.details_frame, text="Experiment Details:", font=("Arial", 10, "bold")).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
+        ttk.Label(self.details_frame, text="Benchmark Results Details:", font=("Arial", 10, "bold")).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
         row += 1
         
         # Show duration
@@ -548,6 +805,9 @@ class ExperimentVisualizer:
     def update_plot(self):
         """Update the plot with selected experiment data"""
         if not self.data or not self.experiment_var.get():
+            self.fig.clear()
+            self.canvas.draw()
+            self.status_var.set("No benchmark data loaded or no experiment selected for plotting.")
             return
         
         experiment_id = self.experiment_var.get()
@@ -567,6 +827,13 @@ class ExperimentVisualizer:
             
             # Get the list of all experiment IDs
             experiment_ids = list(self.data["benchmark_results"]["experiments"].keys())
+        elif experiment_id == "All Experiments without warmup":
+            # Get the time boundaries for experiments without warmup
+            start_time_ms, end_time_ms = self.get_experiments_without_warmup_time_boundaries()
+            
+            # Get the list of all experiment IDs, filtering out those with "warmup" in the name
+            all_experiment_ids = list(self.data["benchmark_results"]["experiments"].keys())
+            experiment_ids = [exp_id for exp_id in all_experiment_ids if "warmup" not in exp_id.lower()]
         else:
             # Get boundaries for the single selected experiment
             start_time_ms, end_time_ms = self.get_experiment_time_boundaries(experiment_id)
@@ -588,7 +855,7 @@ class ExperimentVisualizer:
         api_energy_data = self.data.get("api_server_energy", [])
         db_energy_data = self.data.get("db_server_energy", [])
         
-        use_strict_filtering = (experiment_id != "All Experiments" and experiment_id != "All data")
+        use_strict_filtering = (experiment_id != "All Experiments" and experiment_id != "All data" and experiment_id != "All Experiments without warmup")
         
         filtered_api_data = self._filter_energy_data_by_time(api_energy_data, start_time_ms, end_time_ms, use_strict_filtering)
         filtered_db_data = self._filter_energy_data_by_time(db_energy_data, start_time_ms, end_time_ms, use_strict_filtering)
@@ -600,8 +867,12 @@ class ExperimentVisualizer:
         
         try:
             window_size_ms = int(self.window_size_var.get())
+            if window_size_ms <= 0:
+                raise ValueError("Window size must be positive")
         except ValueError:
-            window_size_ms = 100
+            messagebox.showerror("Invalid Input", "Window size must be a positive integer.")
+            window_size_ms = 100 # Default fallback
+            self.window_size_var.set("100")
         
         # Process the energy data
         if data_source == "Energy":
@@ -620,26 +891,28 @@ class ExperimentVisualizer:
             ax = self.fig.add_subplot(111)
             
             # Configure the axis
-            ax.set_xlabel('Time (EET)', fontsize=10)
-            ax.set_ylabel('Energy Consumption (Watts)', fontsize=10)  # Updated unit label
+            ax.set_xlabel('Time (EET)', fontsize=8)
+            ax.set_ylabel('Energy Consumption (Watts)', fontsize=8)  # Updated unit label
             
             # Set plot title based on selected experiments
             if experiment_id == "All data":
-                ax.set_title(f'Energy Consumption - All Data (No Time Filtering)', fontsize=12)
+                ax.set_title(f'Energy Consumption - All Data (No Time Filtering)', fontsize=10)
             elif experiment_id == "All Experiments":
-                ax.set_title(f'Energy Consumption for All Experiments', fontsize=12)
+                ax.set_title(f'Energy Consumption for All Experiments', fontsize=10)
+            elif experiment_id == "All Experiments without warmup":
+                ax.set_title(f'Energy Consumption for All Experiments (excluding warmup)', fontsize=10)
             else:
-                ax.set_title(f'Energy Consumption for Experiment: {experiment_id}', fontsize=12)
+                ax.set_title(f'Energy Consumption for Experiment: {experiment_id}', fontsize=10)
             
             # Format the time axis
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
             ax.tick_params(axis='x', rotation=45)
             
-            if api_df.empty and db_df.empty and host_api_df.empty and host_db_df.empty and not self.mongodb_api_var.get() and not self.mongodb_db_var.get():
+            if api_df.empty and db_df.empty and host_api_df.empty and host_db_df.empty and (not self.mongodb_api_var.get() or self.mongodb_api_data is None) and (not self.mongodb_db_var.get() or self.mongodb_db_data is None):
                 self.status_var.set("No energy data available for the selected time period")
                 ax.text(0.5, 0.5, "No energy data available", 
                        horizontalalignment='center', verticalalignment='center',
-                       transform=ax.transAxes, fontsize=14)
+                       transform=ax.transAxes, fontsize=10)
             else:
                 # Plot the data based on the selected plot type and accumulation mode
                 if accumulation_mode == "Simple":
@@ -654,11 +927,11 @@ class ExperimentVisualizer:
                         
                         if not host_api_df.empty and self.show_host_api_var.get():
                              ax.plot(host_api_df['datetime'], host_api_df['consumption'], 
-                                    label='Host (API Server)', color='purple', linestyle='--', linewidth=1.5, marker=None)
+                                    label='Host Machine (API Server)', color='purple', linestyle='--', linewidth=1.5, marker=None)
                         
                         if not host_db_df.empty and self.show_host_db_var.get():
                              ax.plot(host_db_df['datetime'], host_db_df['consumption'], 
-                                    label='Host (DB Server)', color='grey', linestyle=':', linewidth=1.5, marker=None)
+                                    label='Host Machine (DB Server)', color='grey', linestyle=':', linewidth=1.5, marker=None)
                         
                         if self.mongodb_api_var.get() and self.mongodb_api_data is not None:
                             api_target = self.mongodb_api_target_var.get()
@@ -692,11 +965,11 @@ class ExperimentVisualizer:
                         
                         if not host_api_df.empty and self.show_host_api_var.get():
                             ax.bar(host_api_df['datetime'], host_api_df['consumption'], 
-                                   width=bar_width * 0.8, label='Host (API Server)', color='purple', alpha=0.5)
+                                   width=bar_width * 0.8, label='Host Machine (API Server)', color='purple', alpha=0.5)
                         
                         if not host_db_df.empty and self.show_host_db_var.get():
                             ax.bar(host_db_df['datetime'], host_db_df['consumption'], 
-                                   width=bar_width * 0.6, label='Host (DB Server)', color='grey', alpha=0.5)
+                                   width=bar_width * 0.6, label='Host Machine (DB Server)', color='grey', alpha=0.5)
                         
                         if self.mongodb_api_var.get() and self.mongodb_api_data is not None:
                             api_target = self.mongodb_api_target_var.get()
@@ -719,7 +992,7 @@ class ExperimentVisualizer:
                                                width=bar_width, label='PowerAPI DB', color='orange', alpha=0.7)
                 
                 elif accumulation_mode == "Accumulated":
-                    ax.set_ylabel('Cumulative Energy Consumption (Watts)', fontsize=10)
+                    ax.set_ylabel('Cumulative Energy Consumption (Watts)', fontsize=8)
                     
                     if not api_df.empty and self.show_scaphandre_api_var.get():
                         api_df['cumulative'] = api_df['consumption'].cumsum()
@@ -734,12 +1007,12 @@ class ExperimentVisualizer:
                     if not host_api_df.empty and self.show_host_api_var.get():
                         host_api_df['cumulative'] = host_api_df['consumption'].cumsum()
                         ax.plot(host_api_df['datetime'], host_api_df['cumulative'], 
-                               label='Host (API Server) - Cumulative', color='purple', linestyle='--', linewidth=1.5, marker=None)
+                               label='Host Machine (API Server) - Cumulative', color='purple', linestyle='--', linewidth=1.5, marker=None)
                     
                     if not host_db_df.empty and self.show_host_db_var.get():
                         host_db_df['cumulative'] = host_db_df['consumption'].cumsum()
                         ax.plot(host_db_df['datetime'], host_db_df['cumulative'], 
-                               label='Host (DB Server) - Cumulative', color='grey', linestyle=':', linewidth=1.5, marker=None)
+                               label='Host Machine (DB Server) - Cumulative', color='grey', linestyle=':', linewidth=1.5, marker=None)
                     
                     if self.mongodb_api_var.get() and self.mongodb_api_data is not None:
                         api_target = self.mongodb_api_target_var.get()
@@ -763,7 +1036,7 @@ class ExperimentVisualizer:
                                     ax.plot(processed_mongo_db_df['datetime'], processed_mongo_db_df['cumulative'],
                                            label='PowerAPI DB - Cumulative', color='orange', linewidth=2, marker=None)
                 
-                ax.legend(loc='best')
+                ax.legend(loc='best', fontsize='x-small', markerscale=0.8)
                 
                 ax.grid(True, linestyle='--', alpha=0.7)
                 
@@ -807,7 +1080,8 @@ class ExperimentVisualizer:
                             current_exp_id, _, current_end = chronology[i]
                             next_exp_id, next_start, _ = chronology[i + 1]
                             
-                            if next_start > current_end:
+                            # Ensure next_start is not before current_end to avoid negative durations
+                            if next_start > current_end: 
                                 current_end_dt = self._convert_to_eet(current_end)
                                 next_start_dt = self._convert_to_eet(next_start)
                                 
@@ -825,7 +1099,7 @@ class ExperimentVisualizer:
                                 pause_duration = (next_start - current_end) / 1000
                                 
                                 # Add a text label for the pause duration
-                                if pause_duration > 5:
+                                if pause_duration > 5: # Only label pauses longer than 5 seconds
                                     midpoint = current_end_dt + (next_start_dt - current_end_dt) / 2
                                     y_pos = ax.get_ylim()[1] * 0.75 
 
@@ -847,15 +1121,17 @@ class ExperimentVisualizer:
         elif data_source == "Energy Consumed":
             ax = self.fig.add_subplot(111)
             
-            ax.set_xlabel('Time (EET)', fontsize=10)
-            ax.set_ylabel('Total Energy Consumed (Watts)', fontsize=10)
+            ax.set_xlabel('Time (EET)', fontsize=8)
+            ax.set_ylabel('Total Energy Consumed (Watts)', fontsize=8)
             
             if experiment_id == "All data":
-                ax.set_title(f'Total Energy Consumed - All Data (No Time Filtering)', fontsize=12)
+                ax.set_title(f'Total Energy Consumed - All Data (No Time Filtering)', fontsize=10)
             elif experiment_id == "All Experiments":
-                ax.set_title(f'Total Energy Consumed for All Experiments', fontsize=12)
+                ax.set_title(f'Total Energy Consumed for All Experiments', fontsize=10)
+            elif experiment_id == "All Experiments without warmup":
+                ax.set_title(f'Total Energy Consumed for All Experiments (excluding warmup)', fontsize=10)
             else:
-                ax.set_title(f'Total Energy Consumed for Experiment: {experiment_id}', fontsize=12)
+                ax.set_title(f'Total Energy Consumed for Experiment: {experiment_id}', fontsize=10)
             
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
             ax.tick_params(axis='x', rotation=45)
@@ -883,6 +1159,9 @@ class ExperimentVisualizer:
                 db_df = db_df[db_df['datetime'] >= start_dt]
             if end_dt is not None and not db_df.empty:
                 db_df = db_df[db_df['datetime'] <= end_dt]
+
+            processed_mongo_api_df = pd.DataFrame() # Initialize to empty
+            processed_mongo_db_df = pd.DataFrame() # Initialize to empty
 
             if not api_df.empty and self.show_scaphandre_api_var.get():
                 api_df['cumulative'] = api_df['consumption'].cumsum()
@@ -928,7 +1207,7 @@ class ExperimentVisualizer:
                                 ax.plot(processed_mongo_db_df['datetime'], processed_mongo_db_df['cumulative'],
                                        label='PowerAPI DB', color='orange', linewidth=2, marker=None)
             
-            ax.legend(loc='upper left', fontsize='small')
+            ax.legend(loc='upper left', fontsize='x-small', markerscale=0.8)
             
             ax.grid(True, linestyle='--', alpha=0.7)
             
@@ -955,24 +1234,24 @@ class ExperimentVisualizer:
             # Calculate and display total energy consumed
             total_api = api_df['consumption'].sum() if not api_df.empty else 0
             total_db = db_df['consumption'].sum() if not db_df.empty else 0
-            total_mongo_api = processed_mongo_api_df['power'].sum() if 'processed_mongo_api_df' in locals() and not processed_mongo_api_df.empty else 0
-            total_mongo_db = processed_mongo_db_df['power'].sum() if 'processed_mongo_db_df' in locals() and not processed_mongo_db_df.empty else 0
+            total_mongo_api = processed_mongo_api_df['power'].sum() if not processed_mongo_api_df.empty else 0
+            total_mongo_db = processed_mongo_db_df['power'].sum() if not processed_mongo_db_df.empty else 0
             
             total_text = f"Total Energy Consumed:\n"
-            total_text += f"API Server: {total_api:.2f} Watts\n"
-            total_text += f"DB Server: {total_db:.2f} Watts\n"
+            total_text += f"Scaphandre API Server: {total_api:.2f} Watts\n"
+            total_text += f"Scaphandre DB Server: {total_db:.2f} Watts\n"
             if total_mongo_api > 0:
                 total_text += f"PowerAPI API: {total_mongo_api:.2f} Watts\n"
             if total_mongo_db > 0:
                 total_text += f"PowerAPI DB: {total_mongo_db:.2f} Watts\n"
             total_text += f"Total: {total_api + total_db + total_mongo_api + total_mongo_db:.2f} Watts"
             
-            ax.text(0.98, 0.98, total_text,
+            ax.text(0.98, 0.02, total_text,
                    transform=ax.transAxes,
-                   verticalalignment='top',
+                   verticalalignment='bottom',
                    horizontalalignment='right',
                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
-                   fontsize=10)
+                   fontsize=8)
             
             self.fig.tight_layout()
             
@@ -992,14 +1271,14 @@ class ExperimentVisualizer:
             
             # Configure the axes
             if experiment_id == "All data":
-                ax1.set_title(f'Energy Consumption - Scaphandre API Server (Java) - All Data (No Filtering)', fontsize=10)
-                ax2.set_title(f'Energy Consumption - Scaphandre DB Server (Postgres) - All Data (No Filtering)', fontsize=10)
+                ax1.set_title(f'Energy Consumption - Scaphandre API Server (Java) - All Data (No Filtering)', fontsize=8)
+                ax2.set_title(f'Energy Consumption - Scaphandre DB Server (Postgres) - All Data (No Filtering)', fontsize=8)
             else:
-                ax1.set_title(f'Energy Consumption - Scaphandre API Server (Java) - {experiment_id}', fontsize=10)
-                ax2.set_title(f'Energy Consumption - Scaphandre DB Server (Postgres) - {experiment_id}', fontsize=10)
-            ax1.set_ylabel('Energy Consumption', fontsize=9)
-            ax2.set_xlabel('Time (EET)', fontsize=9)
-            ax2.set_ylabel('Energy Consumption', fontsize=9)
+                ax1.set_title(f'Energy Consumption - Scaphandre API Server (Java) - {experiment_id}', fontsize=8)
+                ax2.set_title(f'Energy Consumption - Scaphandre DB Server (Postgres) - {experiment_id}', fontsize=8)
+            ax1.set_ylabel('Energy Consumption', fontsize=7)
+            ax2.set_xlabel('Time (EET)', fontsize=7)
+            ax2.set_ylabel('Energy Consumption', fontsize=7)
             
             # Format time axes
             ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
@@ -1014,7 +1293,7 @@ class ExperimentVisualizer:
             if not has_scaphandre_api and not has_powerapi_api:
                 ax1.text(0.5, 0.5, "No API server energy data available", 
                         horizontalalignment='center', verticalalignment='center',
-                        transform=ax1.transAxes, fontsize=10)
+                        transform=ax1.transAxes, fontsize=8)
             else:
                 if accumulation_mode == "Simple":
                     if has_scaphandre_api:
@@ -1035,7 +1314,7 @@ class ExperimentVisualizer:
                         if mongo_api_df is not None:
                             processed_mongo_api_df = self._process_mongodb_data(mongo_api_df, window_size_ms)
                             if not processed_mongo_api_df.empty:
-                                bar_width = 0.0002 if 'bar_width' not in locals() else bar_width
+                                bar_width = 0.0002 # Ensure bar_width is defined
                                 if plot_type == "Line":
                                     ax1.plot(processed_mongo_api_df['datetime'], processed_mongo_api_df['power'],
                                            color='green', linewidth=2, marker=None, 
@@ -1048,7 +1327,7 @@ class ExperimentVisualizer:
                                     ax1.bar(processed_mongo_api_df['datetime'], processed_mongo_api_df['power'],
                                               width=bar_width, color='green', alpha=0.7, 
                                               label='PowerAPI API')
-                else:
+                else: # Accumulated mode
                     if has_scaphandre_api:
                         api_df['accumulated'] = api_df['consumption'].cumsum()
                         if plot_type == "Line":
@@ -1059,6 +1338,17 @@ class ExperimentVisualizer:
                                          color='lightcoral', linewidth=1.5, marker=None, alpha=0.7, label='Per Interval')
                             ax1_twin.set_ylabel('Interval Energy', color='lightcoral', fontsize=8)
                             ax1_twin.tick_params(axis='y', labelcolor='lightcoral')
+                        elif plot_type == "Bar": # special handling for bar in accumulated
+                            bar_width = 0.0002
+                            ax1.fill_between(api_df['datetime'], api_df['accumulated'], color='red', alpha=0.3, label='Accumulated')
+                            ax1.plot(api_df['datetime'], api_df['accumulated'], color='red', linewidth=1.5)
+                            ax1_twin = ax1.twinx()
+                            ax1_twin.bar(api_df['datetime'], api_df['consumption'], width=bar_width, color='lightcoral', alpha=0.7, label='Per Interval')
+                            ax1_twin.set_ylabel('Interval Energy', color='lightcoral', fontsize=8)
+                            ax1_twin.tick_params(axis='y', labelcolor='lightcoral')
+                        elif plot_type == "Scatter":
+                            ax1.scatter(api_df['datetime'], api_df['accumulated'], color='red', marker='o', s=15, label='Accumulated')
+                            ax1.plot(api_df['datetime'], api_df['accumulated'], color='red', linewidth=1, alpha=0.5)
                     
                     if has_powerapi_api:
                         api_target = self.mongodb_api_target_var.get()
@@ -1067,23 +1357,20 @@ class ExperimentVisualizer:
                             processed_mongo_api_df = self._process_mongodb_data(mongo_api_df, window_size_ms)
                             if not processed_mongo_api_df.empty:
                                 processed_mongo_api_df['accumulated'] = processed_mongo_api_df['power'].cumsum()
-                                ax1.plot(processed_mongo_api_df['datetime'], processed_mongo_api_df['accumulated'],
-                                       color='green', linewidth=2, marker=None, 
-                                       label='PowerAPI API Accumulated')
-                    elif plot_type == "Bar":
-                        bar_width = 0.0002
-                        ax1.fill_between(api_df['datetime'], api_df['accumulated'], color='blue', alpha=0.3, label='Accumulated')
-                        ax1.plot(api_df['datetime'], api_df['accumulated'], color='blue', linewidth=1.5)
-                        ax1_twin = ax1.twinx()
-                        ax1_twin.bar(api_df['datetime'], api_df['consumption'], width=bar_width, color='lightblue', alpha=0.7, label='Per Interval')
-                        ax1_twin.set_ylabel('Interval Energy', color='lightblue', fontsize=8)
-                        ax1_twin.tick_params(axis='y', labelcolor='lightblue')
-                    elif plot_type == "Scatter":
-                        ax1.scatter(api_df['datetime'], api_df['accumulated'], color='blue', marker='o', s=15, label='Accumulated')
-                        ax1.plot(api_df['datetime'], api_df['accumulated'], color='blue', linewidth=1, alpha=0.5)
-            
+                                if plot_type == "Line":
+                                    ax1.plot(processed_mongo_api_df['datetime'], processed_mongo_api_df['accumulated'],
+                                           color='green', linewidth=2, marker=None, 
+                                           label='PowerAPI API Accumulated')
+                                elif plot_type == "Bar":
+                                    bar_width = 0.0002
+                                    ax1.fill_between(processed_mongo_api_df['datetime'], processed_mongo_api_df['accumulated'], color='lightgreen', alpha=0.3, label='PowerAPI Accumulated')
+                                    ax1.plot(processed_mongo_api_df['datetime'], processed_mongo_api_df['accumulated'], color='green', linewidth=1.5)
+                                elif plot_type == "Scatter":
+                                    ax1.scatter(processed_mongo_api_df['datetime'], processed_mongo_api_df['accumulated'], color='green', marker='o', s=15, label='PowerAPI Accumulated')
+                                    ax1.plot(processed_mongo_api_df['datetime'], processed_mongo_api_df['accumulated'], color='green', linewidth=1, alpha=0.5)
+
             if (not api_df.empty) or (self.mongodb_api_var.get() and self.mongodb_api_data is not None):
-                ax1.legend(loc='upper left', fontsize='small')
+                ax1.legend(loc='upper left', fontsize='x-small', markerscale=0.8)
             
             has_scaphandre_db = not db_df.empty and self.show_scaphandre_db_var.get()
             has_powerapi_db = (self.mongodb_db_var.get() and self.mongodb_db_data is not None and 
@@ -1092,7 +1379,7 @@ class ExperimentVisualizer:
             if not has_scaphandre_db and not has_powerapi_db:
                 ax2.text(0.5, 0.5, "No DB server energy data available", 
                         horizontalalignment='center', verticalalignment='center',
-                        transform=ax2.transAxes, fontsize=10)
+                        transform=ax2.transAxes, fontsize=8)
             else:
                 if accumulation_mode == "Simple":
                     if has_scaphandre_db:
@@ -1113,7 +1400,7 @@ class ExperimentVisualizer:
                         if mongo_db_df is not None:
                             processed_mongo_db_df = self._process_mongodb_data(mongo_db_df, window_size_ms)
                             if not processed_mongo_db_df.empty:
-                                bar_width = 0.0002 if 'bar_width' not in locals() else bar_width
+                                bar_width = 0.0002 # Ensure bar_width is defined
                                 if plot_type == "Line":
                                     ax2.plot(processed_mongo_db_df['datetime'], processed_mongo_db_df['power'],
                                            color='orange', linewidth=2, marker=None, 
@@ -1126,7 +1413,7 @@ class ExperimentVisualizer:
                                     ax2.bar(processed_mongo_db_df['datetime'], processed_mongo_db_df['power'],
                                           width=bar_width, color='orange', alpha=0.7, 
                                           label=f'PowerAPI DB ({db_target})')
-                else:
+                else: # Accumulated mode
                     if has_scaphandre_db:
                         db_df['accumulated'] = db_df['consumption'].cumsum()
                         
@@ -1139,6 +1426,18 @@ class ExperimentVisualizer:
                             ax2_twin.set_ylabel('Interval Energy', color='lightblue', fontsize=8)
                             ax2_twin.tick_params(axis='y', labelcolor='lightblue')
                         
+                        elif plot_type == "Bar":
+                            bar_width = 0.0002
+                            ax2.fill_between(db_df['datetime'], db_df['accumulated'], color='blue', alpha=0.3, label='Accumulated')
+                            ax2.plot(db_df['datetime'], db_df['accumulated'], color='blue', linewidth=1.5)
+                            ax2_twin = ax2.twinx()
+                            ax2_twin.bar(db_df['datetime'], db_df['consumption'], width=bar_width, color='lightblue', alpha=0.7, label='Per Interval')
+                            ax2_twin.set_ylabel('Interval Energy', color='lightblue', fontsize=8)
+                            ax2_twin.tick_params(axis='y', labelcolor='lightblue')
+                        elif plot_type == "Scatter":
+                            ax2.scatter(db_df['datetime'], db_df['accumulated'], color='blue', marker='s', s=15, label='Accumulated')
+                            ax2.plot(db_df['datetime'], db_df['accumulated'], color='blue', linewidth=1, alpha=0.5)
+                    
                     if has_powerapi_db:
                         db_target = self.mongodb_db_target_var.get()
                         mongo_db_df = self._get_filtered_mongodb_data(self.mongodb_db_data, db_target, start_time_ms, end_time_ms, use_strict_filtering)
@@ -1146,23 +1445,20 @@ class ExperimentVisualizer:
                             processed_mongo_db_df = self._process_mongodb_data(mongo_db_df, window_size_ms)
                             if not processed_mongo_db_df.empty:
                                 processed_mongo_db_df['accumulated'] = processed_mongo_db_df['power'].cumsum()
-                                ax2.plot(processed_mongo_db_df['datetime'], processed_mongo_db_df['accumulated'],
-                                       color='orange', linewidth=2, marker=None, 
-                                       label=f'PowerAPI DB ({db_target}) Accumulated')
-                    elif plot_type == "Bar":
-                        bar_width = 0.0002
-                        ax2.fill_between(db_df['datetime'], db_df['accumulated'], color='green', alpha=0.3, label='Accumulated')
-                        ax2.plot(db_df['datetime'], db_df['accumulated'], color='green', linewidth=1.5)
-                        ax2_twin = ax2.twinx()
-                        ax2_twin.bar(db_df['datetime'], db_df['consumption'], width=bar_width, color='lightblue', alpha=0.7, label='Per Interval')
-                        ax2_twin.set_ylabel('Interval Energy', color='lightblue', fontsize=8)
-                        ax2_twin.tick_params(axis='y', labelcolor='lightblue')
-                    elif plot_type == "Scatter":
-                        ax2.scatter(db_df['datetime'], db_df['accumulated'], color='green', marker='s', s=15, label='Accumulated')
-                        ax2.plot(db_df['datetime'], db_df['accumulated'], color='green', linewidth=1, alpha=0.5)
+                                if plot_type == "Line":
+                                    ax2.plot(processed_mongo_db_df['datetime'], processed_mongo_db_df['accumulated'],
+                                           color='orange', linewidth=2, marker=None, 
+                                           label=f'PowerAPI DB ({db_target}) Accumulated')
+                                elif plot_type == "Bar":
+                                    bar_width = 0.0002
+                                    ax2.fill_between(processed_mongo_db_df['datetime'], processed_mongo_db_df['accumulated'], color='orange', alpha=0.3, label='PowerAPI Accumulated')
+                                    ax2.plot(processed_mongo_db_df['datetime'], processed_mongo_db_df['accumulated'], color='orange', linewidth=1.5)
+                                elif plot_type == "Scatter":
+                                    ax2.scatter(processed_mongo_db_df['datetime'], processed_mongo_db_df['accumulated'], color='orange', marker='s', s=15, label='PowerAPI Accumulated')
+                                    ax2.plot(processed_mongo_db_df['datetime'], processed_mongo_db_df['accumulated'], color='orange', linewidth=1, alpha=0.5)
             
             if has_scaphandre_db or has_powerapi_db:
-                ax2.legend(loc='upper left', fontsize='small')
+                ax2.legend(loc='upper left', fontsize='x-small', markerscale=0.8)
             
             ax1.grid(True, linestyle='--', alpha=0.7)
             ax2.grid(True, linestyle='--', alpha=0.7)
@@ -1178,18 +1474,22 @@ class ExperimentVisualizer:
             if accumulation_mode == "Accumulated" and not api_df.empty and 'accumulated' in api_df.columns:
                 try:
                     lines, labels = ax1.get_legend_handles_labels()
-                    lines2, labels2 = ax1.twinx().get_legend_handles_labels()
-                    ax1.legend(lines + lines2, labels + labels2, loc='upper left', fontsize='small')
-                except:
-                    pass
+                    if hasattr(ax1, 'twinx_axes'): # Check if twinx was created
+                        lines2, labels2 = ax1.twinx_axes[0].get_legend_handles_labels()
+                        ax1.legend(lines + lines2, labels + labels2, loc='upper left', fontsize='x-small', markerscale=0.8)
+                except Exception as ex:
+                    print(f"Error updating legend for ax1: {ex}")
+                    if not api_df.empty: ax1.legend(loc='upper left', fontsize='x-small', markerscale=0.8) # Fallback
             
             if accumulation_mode == "Accumulated" and not db_df.empty and 'accumulated' in db_df.columns:
                 try:
                     lines, labels = ax2.get_legend_handles_labels()
-                    lines2, labels2 = ax2.twinx().get_legend_handles_labels()
-                    ax2.legend(lines + lines2, labels + labels2, loc='upper left', fontsize='small')
-                except:
-                    pass
+                    if hasattr(ax2, 'twinx_axes'): # Check if twinx was created
+                        lines2, labels2 = ax2.twinx_axes[0].get_legend_handles_labels()
+                        ax2.legend(lines + lines2, labels + labels2, loc='upper left', fontsize='x-small', markerscale=0.8)
+                except Exception as ex:
+                    print(f"Error updating legend for ax2: {ex}")
+                    if not db_df.empty: ax2.legend(loc='upper left', fontsize='x-small', markerscale=0.8) # Fallback
             
             self.fig.tight_layout()
             
@@ -1225,9 +1525,9 @@ class ExperimentVisualizer:
             else:
                 status_parts = []
                 if api_count > 0 or powerapi_api_count > 0:
-                    status_parts.append(f"API data points: {api_count + powerapi_api_count}")
+                    status_parts.append(f"API data points: Scaphandre {api_count}, PowerAPI {powerapi_api_count}")
                 if db_count > 0 or powerapi_db_count > 0:
-                    status_parts.append(f"DB data points: {db_count + powerapi_db_count}")
+                    status_parts.append(f"DB data points: Scaphandre {db_count}, PowerAPI {powerapi_db_count}")
                     
                 if status_parts:
                     self.status_var.set(f"Comparative view: {' | '.join(status_parts)}")
@@ -1235,15 +1535,19 @@ class ExperimentVisualizer:
                     self.status_var.set("Comparative view: No data available")
                 
         elif data_source == "Latency":
-            if experiment_id == "All data" or experiment_id == "All Experiments":
+            if experiment_id == "All data" or experiment_id == "All Experiments" or experiment_id == "All Experiments without warmup":
                 ax = self.fig.add_subplot(111)
                 
-                ax.set_xlabel('Time (EET)', fontsize=10)
-                ax.set_ylabel('Latency (ms)', fontsize=10)
+                ax.set_xlabel('Time (EET)', fontsize=8)
+                ax.set_ylabel('Latency (ms)', fontsize=8)
                 if experiment_id == "All data":
-                    ax.set_title(f'Request Latency - All Data (No Time Filtering)', fontsize=12)
+                    ax.set_title(f'Request Latency - All Data (No Time Filtering)', fontsize=10)
+                elif experiment_id == "All Experiments":
+                    ax.set_title(f'Request Latency for All Experiments', fontsize=10)
+                elif experiment_id == "All Experiments without warmup":
+                    ax.set_title(f'Request Latency for All Experiments (excluding warmup)', fontsize=10)
                 else:
-                    ax.set_title(f'Request Latency for All Experiments', fontsize=12)
+                    ax.set_title(f'Request Latency for Experiment: {experiment_id}', fontsize=10)
                 
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
                 ax.tick_params(axis='x', rotation=45)
@@ -1285,11 +1589,11 @@ class ExperimentVisualizer:
                 if not has_data:
                     ax.text(0.5, 0.5, "No latency data available", 
                            horizontalalignment='center', verticalalignment='center',
-                           transform=ax.transAxes, fontsize=14)
+                           transform=ax.transAxes, fontsize=10)
                 else:
                     ax.grid(True, linestyle='--', alpha=0.7)
                     
-                    ax.legend(loc='upper left', fontsize='small')
+                    ax.legend(loc='upper left', fontsize='x-small', markerscale=0.8)
                     
                     experiment_colors = ['lightgreen', 'lightblue', 'lightyellow', 'lightpink', 'lightcoral', 'lightskyblue']
                     
@@ -1359,13 +1663,13 @@ class ExperimentVisualizer:
                     ax = self.fig.add_subplot(111)
                     ax.text(0.5, 0.5, "No latency data available for this experiment", 
                            horizontalalignment='center', verticalalignment='center',
-                           transform=ax.transAxes, fontsize=14)
+                           transform=ax.transAxes, fontsize=10)
                 else:
                     ax = self.fig.add_subplot(111)
                     
-                    ax.set_xlabel('Time (EET)', fontsize=10)
-                    ax.set_ylabel('Latency (ms)', fontsize=10)
-                    ax.set_title(f'Request Latency for Experiment: {experiment_id}', fontsize=12)
+                    ax.set_xlabel('Time (EET)', fontsize=8)
+                    ax.set_ylabel('Latency (ms)', fontsize=8)
+                    ax.set_title(f'Request Latency for Experiment: {experiment_id}', fontsize=10)
                     
                     ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
                     ax.tick_params(axis='x', rotation=45)
@@ -1383,7 +1687,7 @@ class ExperimentVisualizer:
                     if not latency_data:
                         ax.text(0.5, 0.5, "No detailed latency data available", 
                                horizontalalignment='center', verticalalignment='center',
-                               transform=ax.transAxes, fontsize=14)
+                               transform=ax.transAxes, fontsize=10)
                     else:
                         latency_df = pd.DataFrame(latency_data, columns=['datetime', 'latency'])
                         
@@ -1423,18 +1727,22 @@ class ExperimentVisualizer:
                         
                         self.fig.tight_layout()
 
-                        ax.legend(loc='upper left', fontsize='small')
+                        ax.legend(loc='upper left', fontsize='x-small', markerscale=0.8)
         
         elif data_source == "Throughput":
-            if experiment_id == "All data" or experiment_id == "All Experiments":
+            if experiment_id == "All data" or experiment_id == "All Experiments" or experiment_id == "All Experiments without warmup":
                 ax = self.fig.add_subplot(111)
                 
-                ax.set_xlabel('Time (EET)', fontsize=10)
-                ax.set_ylabel('Throughput (requests/second)', fontsize=10)
+                ax.set_xlabel('Time (EET)', fontsize=8)
+                ax.set_ylabel('Throughput (requests/second)', fontsize=8)
                 if experiment_id == "All data":
-                    ax.set_title(f'Request Throughput - All Data (No Time Filtering)', fontsize=12)
+                    ax.set_title(f'Request Throughput - All Data (No Time Filtering)', fontsize=10)
+                elif experiment_id == "All Experiments":
+                    ax.set_title(f'Request Throughput for All Experiments', fontsize=10)
+                elif experiment_id == "All Experiments without warmup":
+                    ax.set_title(f'Request Throughput for All Experiments (excluding warmup)', fontsize=10)
                 else:
-                    ax.set_title(f'Request Throughput for All Experiments', fontsize=12)
+                    ax.set_title(f'Request Throughput for Experiment: {experiment_id}', fontsize=10)
                 
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
                 ax.tick_params(axis='x', rotation=45)
@@ -1502,7 +1810,7 @@ class ExperimentVisualizer:
                                          label=f"{exp_id} (Successful)")
                 
                 if has_data:
-                    ax.legend(loc='upper left', fontsize='small')
+                    ax.legend(loc='upper left', fontsize='x-small', markerscale=0.8)
                     
                     ax.xaxis.set_major_locator(mticker.MaxNLocator(integer=True))
                     
@@ -1532,16 +1840,16 @@ class ExperimentVisualizer:
                 else:
                     ax.text(0.5, 0.5, "No throughput data available for the selected experiments", 
                            horizontalalignment='center', verticalalignment='center',
-                           transform=ax.transAxes, fontsize=10)
+                           transform=ax.transAxes, fontsize=8)
             else:
                 experiment = self.data["benchmark_results"]["experiments"].get(experiment_id, {})
                 runs = experiment.get("runs", [])
                 
                 ax = self.fig.add_subplot(111)
                 
-                ax.set_xlabel('Run Number', fontsize=10)
-                ax.set_ylabel('Throughput (requests/second)', fontsize=10)
-                ax.set_title(f'Request Throughput for {experiment_id}', fontsize=12)
+                ax.set_xlabel('Run Number', fontsize=8)
+                ax.set_ylabel('Throughput (requests/second)', fontsize=8)
+                ax.set_title(f'Request Throughput for {experiment_id}', fontsize=10)
                 
                 ax.yaxis.set_major_formatter(plt.FormatStrFormatter('%.5f'))
                 
@@ -1587,7 +1895,7 @@ class ExperimentVisualizer:
                             ax.scatter(goodput_df['run'], goodput_df['goodput'], 
                                      color='green', marker='x', s=50, label='Successful Throughput')
                     
-                    ax.legend(loc='best')
+                    ax.legend(loc='best', fontsize='x-small', markerscale=0.8)
                     
                     ax.xaxis.set_major_locator(mticker.MaxNLocator(integer=True))
                     
@@ -1691,7 +1999,7 @@ class ExperimentVisualizer:
             
             # If we can't determine the time boundaries, fall back to using energy data
             if start_time_ms is None or end_time_ms is None:
-                self.status_var.set(f"No explicit time boundaries found for {experiment_id}, using full energy data range.")
+                self.status_var.set(f"No explicit time boundaries found for {experiment_id}, trying energy data range.")
                 
                 # Look for any timestamps in the energy data
                 api_energy_data = self.data.get("api_server_energy", [])
@@ -1699,10 +2007,14 @@ class ExperimentVisualizer:
                 
                 energy_timestamps = []
                 for entry in api_energy_data + db_energy_data:
-                    if "timestamp" in entry:
-                        # Convert seconds to milliseconds
-                        energy_timestamps.append(entry.get("timestamp", 0) * 1000)
-                
+                    # Scaphandre timestamps are in seconds, convert to milliseconds
+                    if "host" in entry and "timestamp" in entry["host"]:
+                        energy_timestamps.append(entry["host"]["timestamp"] * 1000)
+                    elif "consumers" in entry:
+                        for consumer in entry["consumers"]:
+                            if "timestamp" in consumer:
+                                energy_timestamps.append(consumer["timestamp"] * 1000)
+
                 if energy_timestamps:
                     # Use the full range of energy data
                     return min(energy_timestamps), max(energy_timestamps)
@@ -1749,8 +2061,8 @@ class ExperimentVisualizer:
             if "host" in host_interval and "timestamp" in host_interval["host"]:
                 ts = host_interval["host"]["timestamp"]
                 if isinstance(ts, (int, float)):
-                    # Convert to seconds if needed
-                    if ts > 1e10:
+                    # Scaphandre timestamps are typically in seconds, but could be ms if malformed. Normalize to seconds.
+                    if ts > 1e10: # If timestamp is suspiciously large, assume milliseconds
                         ts = ts / 1000
                     energy_timestamps.append(ts)
             
@@ -1760,7 +2072,6 @@ class ExperimentVisualizer:
                     if "timestamp" in consumer:
                         ts = consumer["timestamp"]
                         if isinstance(ts, (int, float)):
-                            # Convert to seconds if needed
                             if ts > 1e10:
                                 ts = ts / 1000
                             energy_timestamps.append(ts)
@@ -1805,29 +2116,28 @@ class ExperimentVisualizer:
         
         filtered_data = []
         for host_interval in energy_data:
-            interval_in_range = False
+            interval_timestamp_sec = None
             
             if "host" in host_interval and "timestamp" in host_interval["host"]:
                 ts = host_interval["host"]["timestamp"]
                 if isinstance(ts, (int, float)):
                     if ts > 1e10:
                         ts = ts / 1000
-                    if ts >= start_time_sec and ts <= end_time_sec:
-                        interval_in_range = True
+                    interval_timestamp_sec = ts
             
-            # Check consumer timestamps
-            if not interval_in_range and "consumers" in host_interval:
+            # If host timestamp isn't reliable, check consumer timestamps
+            if interval_timestamp_sec is None and "consumers" in host_interval:
                 for consumer in host_interval["consumers"]:
                     if "timestamp" in consumer:
                         ts = consumer["timestamp"]
                         if isinstance(ts, (int, float)):
                             if ts > 1e10:
                                 ts = ts / 1000
-                            if ts >= start_time_sec and ts <= end_time_sec:
-                                interval_in_range = True
-                                break
+                            interval_timestamp_sec = ts
+                            break # Found a timestamp for the interval, use it.
             
-            if interval_in_range:
+            if interval_timestamp_sec is not None and \
+               interval_timestamp_sec >= start_time_sec and interval_timestamp_sec <= end_time_sec:
                 filtered_data.append(host_interval)
         
         if not filtered_data:
@@ -1857,7 +2167,7 @@ class ExperimentVisualizer:
         
         Args:
             data_source: List of host interval energy data entries (each containing host info and a consumers list)
-            target_type: Type of target to filter by ("api" for container ID, "db" for container name)
+            target_type: Type of target to filter by ("api" for container ID, "db" for container name, "host", "java", "postgres")
             window_size_ms: Size of accumulation window in milliseconds
             
         Returns:
@@ -1867,122 +2177,93 @@ class ExperimentVisualizer:
         target_api_id = self.api_container_id
         target_db_id = self.db_container_id
 
-        # Check if IDs were loaded successfully
-        if target_type == "api" and not target_api_id:
-            print("ERROR: API container ID not available. Cannot process API energy data.") # DEBUG
-            self.status_var.set("Error: API container ID missing.")
-            return pd.DataFrame(columns=['timestamp', 'consumption', 'datetime']) # Return empty DF
-        
-        if target_type == "db" and not target_db_id:
-             print("ERROR: DB container ID not available. Cannot process DB energy data.") # DEBUG
-             self.status_var.set("Error: DB container ID missing.")
-             return pd.DataFrame(columns=['timestamp', 'consumption', 'datetime']) # Return empty DF
-
         # Initialize variables for accumulation
         current_window_start = None
         accumulated_consumption = 0.0
         processed_data = []
 
-        if target_type == "host":
-            for host_interval in data_source:
-                host_info = host_interval.get("host")
-                if not host_info:
-                    continue # Skip if host info is missing
+        for host_interval in data_source:
+            consumption_in_interval = 0.0
+            interval_timestamp_sec = None
+
+            # Get timestamp for the host interval (prefer host timestamp if available)
+            host_info = host_interval.get("host")
+            if host_info and "timestamp" in host_info:
+                interval_timestamp_sec = host_info["timestamp"]
+                if interval_timestamp_sec > 1e10: # Normalize to seconds if it's in milliseconds
+                    interval_timestamp_sec /= 1000
+
+            if target_type == "host":
+                if host_info and "consumption" in host_info and interval_timestamp_sec is not None:
+                    # Host consumption is directly in microWatts
+                    consumption_in_interval = host_info["consumption"]
+                else:
+                    continue # Skip if host info or consumption/timestamp is missing
+            else: # For specific containers/processes, iterate through consumers
+                consumers = host_interval.get("consumers", [])
+                target_consumer_found_in_interval = False
+                for consumer in consumers:
+                    container_info = consumer.get("container")
+                    consumption = consumer.get("consumption", 0.0)
+                    consumer_timestamp = consumer.get("timestamp") # Use consumer's own timestamp if available
+                    
+                    if consumer_timestamp is not None:
+                         # Normalize to seconds if it's in milliseconds
+                        if consumer_timestamp > 1e10:
+                            consumer_timestamp /= 1000
+                        interval_timestamp_sec = consumer_timestamp # Use consumer timestamp as interval timestamp
+
+                    # Skip entries without necessary data (consumption/timestamp)
+                    if consumption is None or interval_timestamp_sec is None:
+                        continue
+                        
+                    is_target = False
+                    if target_type == "api":
+                        if container_info and target_api_id and target_api_id in container_info.get("id", ""): # Partial match
+                            is_target = True
+                    elif target_type == "db":
+                        if container_info and target_db_id and target_db_id in container_info.get("id", ""): # Partial match
+                            is_target = True
+                    elif target_type == "java":
+                        exe_path = consumer.get("exe", "")
+                        if exe_path and "java" in exe_path.lower():
+                            is_target = True
+                    elif target_type == "postgres":
+                        exe_path = consumer.get("exe", "")
+                        if exe_path and "postgres" in exe_path.lower():
+                            is_target = True
+
+                    if is_target:
+                        target_consumer_found_in_interval = True
+                        consumption_in_interval += consumption # Sum consumption for matching consumers in this interval
+
+            if interval_timestamp_sec is not None and \
+               (target_type == "host" or target_consumer_found_in_interval):
                 
-                consumption = host_info.get("consumption")
-                timestamp = host_info.get("timestamp")
+                consumption_watts = consumption_in_interval / 1_000_000.0 # Convert from microWatts to Watts
                 
-                if consumption is None or timestamp is None:
-                    continue # Skip if consumption or timestamp is missing for host
-                
-                # Convert consumption from microWatts to Watts
-                consumption_watts = consumption / 1_000_000.0
-                
-                # Convert timestamp from seconds to milliseconds
-                milliseconds = int(timestamp * 1000)
+                # Convert timestamp from seconds to milliseconds for windowing logic
+                milliseconds = int(interval_timestamp_sec * 1000)
                 
                 # Apply windowing logic
-                if current_window_start is None or milliseconds >= current_window_start + window_size_ms:
-                    if current_window_start is not None and accumulated_consumption > 0:
-                        dt = self._convert_to_eet(current_window_start)
-                        processed_data.append((current_window_start, accumulated_consumption, dt))
+                if current_window_start is None:
+                    current_window_start = milliseconds - (milliseconds % window_size_ms)
+                    accumulated_consumption = consumption_watts
+                elif milliseconds >= current_window_start + window_size_ms:
+                    # If current data point is past the current window, save the current window's accumulated data
+                    dt = self._convert_to_eet(current_window_start)
+                    processed_data.append((current_window_start, accumulated_consumption, dt))
+                    # Start a new window
                     current_window_start = milliseconds - (milliseconds % window_size_ms)
                     accumulated_consumption = consumption_watts
                 else:
                     accumulated_consumption += consumption_watts
-                    
-            # Add the final host accumulated point
-            if current_window_start is not None and accumulated_consumption > 0:
-                dt = self._convert_to_eet(current_window_start)
-                processed_data.append((current_window_start, accumulated_consumption, dt))
                 
-            # Convert host processed data to DataFrame and return
-            if not processed_data:
-                print("WARNING: No processed data generated for host. Returning empty DataFrame.") # DEBUG
-                return pd.DataFrame(columns=['timestamp', 'consumption', 'datetime'])
-            else:
-                df = pd.DataFrame(processed_data, columns=['timestamp', 'consumption', 'datetime'])
-                print(f"DEBUG: Generated DataFrame for 'host' with {len(df)} rows.") # DEBUG
-                return df
-
-        for host_interval in data_source:
-            consumers = host_interval.get("consumers", [])
-            target_consumer_found_in_interval = False
-            consumption_in_interval = 0.0
-            interval_timestamp = None
-
-            for consumer in consumers:
-                container_info = consumer.get("container")
-                consumption = consumer.get("consumption", 0.0)
-                # Get the timestamp from the consumer entry (in seconds)
-                timestamp = consumer.get("timestamp") 
-                if timestamp is not None:
-                    interval_timestamp = timestamp # Use the consumer timestamp for the interval
-                
-                # Skip entries without necessary data (consumption/timestamp)
-                if consumption is None or timestamp is None:
-                    continue
-                    
-                is_target = False
-                if target_type == "api":
-                    if container_info and target_api_id and container_info.get("id", "").startswith(target_api_id):
-                        is_target = True
-                elif target_type == "db":
-                    if container_info and target_db_id and container_info.get("id", "").startswith(target_db_id):
-                        is_target = True
-                elif target_type == "java":
-                    exe_path = consumer.get("exe", "")
-                    if exe_path and "java" in exe_path.lower():
-                        is_target = True
-                elif target_type == "postgres":
-                    # Check executable name (case-insensitive)
-                    exe_path = consumer.get("exe", "")
-                    if exe_path and "postgres" in exe_path.lower():
-                        is_target = True
-
-                if is_target:
-                    target_consumer_found_in_interval = True
-                    consumption_in_interval += consumption
-
-            if target_consumer_found_in_interval and interval_timestamp is not None:
-                consumption_watts = consumption_in_interval / 1_000_000.0
-                
-                # Convert timestamp from seconds to milliseconds
-                milliseconds = int(interval_timestamp * 1000)
-                
-                if current_window_start is None or milliseconds >= current_window_start + window_size_ms:
-                    if current_window_start is not None and accumulated_consumption > 0:
-                         dt = self._convert_to_eet(current_window_start)
-                         processed_data.append((current_window_start, accumulated_consumption, dt))
-                    current_window_start = milliseconds - (milliseconds % window_size_ms) 
-                    accumulated_consumption = consumption_watts
-                else:
-                    accumulated_consumption += consumption_watts
-                
-        if current_window_start is not None and accumulated_consumption > 0:
+        # Add the final accumulated point after the loop
+        if current_window_start is not None: # check if any data was processed
             dt = self._convert_to_eet(current_window_start)
             processed_data.append((current_window_start, accumulated_consumption, dt))
-            
+                
         if not processed_data:
             print(f"WARNING: No processed data generated for target_type='{target_type}'. Returning empty DataFrame.") # DEBUG
             df = pd.DataFrame(columns=['timestamp', 'consumption', 'datetime'])
@@ -2084,15 +2365,85 @@ class ExperimentVisualizer:
         
         energy_timestamps = []
         for entry in api_energy_data + db_energy_data:
-            if "timestamp" in entry:
-                # Convert seconds to milliseconds
-                energy_timestamps.append(entry.get("timestamp", 0) * 1000)
+            # Scaphandre timestamps are in seconds, convert to milliseconds
+            if "host" in entry and "timestamp" in entry["host"]:
+                energy_timestamps.append(entry["host"]["timestamp"] * 1000)
+            elif "consumers" in entry:
+                for consumer in entry["consumers"]:
+                    if "timestamp" in consumer:
+                        energy_timestamps.append(consumer["timestamp"] * 1000)
         
         if energy_timestamps:
             # Use the full range of energy data
             return min(energy_timestamps), max(energy_timestamps)
             
         return None, None
+
+    def get_experiments_without_warmup_time_boundaries(self):
+        """
+        Get the time boundaries for experiments excluding warmup periods.
+        Finds the last warmup experiment's end time and uses that as the start time.
+        Returns: (start_time_ms, end_time_ms) in milliseconds since epoch, or None if not available
+        """
+        if not self.data or "benchmark_results" not in self.data or "experiments" not in self.data["benchmark_results"]:
+            return None, None
+            
+        experiments = self.data["benchmark_results"]["experiments"]
+        if not experiments:
+            return None, None
+        
+        # Separate warmup and non-warmup experiments
+        warmup_experiments = []
+        non_warmup_experiments = []
+        
+        for experiment_id, experiment_data in experiments.items():
+            if "warmup" in experiment_id.lower():
+                warmup_experiments.append((experiment_id, experiment_data))
+            else:
+                non_warmup_experiments.append((experiment_id, experiment_data))
+        
+        # If no warmup experiments, return the full range
+        if not warmup_experiments:
+            return self.get_all_experiments_time_boundaries()
+        
+        # Find the latest end time of all warmup experiments
+        latest_warmup_end = None
+        for experiment_id, experiment_data in warmup_experiments:
+            start_time, end_time = self.get_experiment_time_boundaries(experiment_id)
+            if end_time is not None:
+                if latest_warmup_end is None or end_time > latest_warmup_end:
+                    latest_warmup_end = end_time
+        
+        # If no non-warmup experiments, return None
+        if not non_warmup_experiments:
+            return None, None
+        
+        # Get the time boundaries for non-warmup experiments
+        non_warmup_start_times = []
+        non_warmup_end_times = []
+        
+        for experiment_id, experiment_data in non_warmup_experiments:
+            start_time, end_time = self.get_experiment_time_boundaries(experiment_id)
+            if start_time is not None:
+                non_warmup_start_times.append(start_time)
+            if end_time is not None:
+                non_warmup_end_times.append(end_time)
+        
+        # Calculate the start time: use the latest warmup end time if available, otherwise use the earliest non-warmup start time
+        if latest_warmup_end is not None and non_warmup_start_times:
+            start_time_ms = max(latest_warmup_end, min(non_warmup_start_times))
+        elif non_warmup_start_times:
+            start_time_ms = min(non_warmup_start_times)
+        else:
+            start_time_ms = None
+        
+        # Calculate the end time
+        if non_warmup_end_times:
+            end_time_ms = max(non_warmup_end_times)
+        else:
+            end_time_ms = None
+        
+        return start_time_ms, end_time_ms
 
     def _get_experiment_chronology(self):
         """
@@ -2119,112 +2470,104 @@ class ExperimentVisualizer:
         experiment_times.sort(key=lambda x: x[1])
         
         return experiment_times
-
-    def _browse_mongodb_file(self, file_type):
-        file_path = filedialog.askopenfilename(
-            title=f"Select PowerAPI {file_type.upper()} Server Energy Data File",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-        )
-        if file_path:
-            if file_type == "api":
-                self.mongodb_api_file_var.set(file_path)
-                self._load_mongodb_data(file_path, "api")
-            else:
-                self.mongodb_db_file_var.set(file_path)
-                self._load_mongodb_data(file_path, "db")
+    
+    # _browse_mongodb_file is removed as load_folder handles it
     
     def _load_mongodb_data(self, file_path, data_type):
+        """
+        Loads PowerAPI energy data from a specified JSON file.
+        Attempts to auto-select the target based on container IDs from experiment_info.
+        """
         try:
-            # Check if file exists and is not empty
             if not os.path.exists(file_path):
-                messagebox.showerror("Error", f"File not found: {file_path}")
-                return
+                messagebox.showwarning("File Not Found", f"PowerAPI {data_type.upper()} file not found: {os.path.basename(file_path)}")
+                if data_type == "api": self.mongodb_api_data = None; self.mongodb_api_target_combo['values'] = []; self.mongodb_api_target_var.set("")
+                else: self.mongodb_db_data = None; self.mongodb_db_target_combo['values'] = []; self.mongodb_db_target_var.set("")
+                return False
                 
             if os.path.getsize(file_path) == 0:
-                messagebox.showerror("Error", f"File is empty: {file_path}")
-                return
+                messagebox.showwarning("Empty File", f"PowerAPI {data_type.upper()} file is empty: {os.path.basename(file_path)}")
+                if data_type == "api": self.mongodb_api_data = None; self.mongodb_api_target_combo['values'] = []; self.mongodb_api_target_var.set("")
+                else: self.mongodb_db_data = None; self.mongodb_db_target_combo['values'] = []; self.mongodb_db_target_var.set("")
+                return False
             
-            # Read and parse JSON file
             with open(file_path, 'r') as file:
                 try:
                     data = json.load(file)
                 except json.JSONDecodeError as e:
-                    messagebox.showerror("Error", f"Invalid JSON file: {str(e)}\nPlease ensure the file contains valid JSON data.")
-                    return
+                    messagebox.showerror("Error", f"Invalid JSON in PowerAPI {data_type.upper()} file ({os.path.basename(file_path)}): {str(e)}")
+                    if data_type == "api": self.mongodb_api_data = None; self.mongodb_api_target_combo['values'] = []; self.mongodb_api_target_var.set("")
+                    else: self.mongodb_db_data = None; self.mongodb_db_target_combo['values'] = []; self.mongodb_db_target_var.set("")
+                    return False
             
-            # Validate data structure
             if not isinstance(data, list):
-                messagebox.showerror("Error", "Invalid data format: Expected a list of energy measurements")
-                return
+                messagebox.showerror("Error", f"Invalid data format in PowerAPI {data_type.upper()} file ({os.path.basename(file_path)}): Expected a list of energy measurements")
+                if data_type == "api": self.mongodb_api_data = None; self.mongodb_api_target_combo['values'] = []; self.mongodb_api_target_var.set("")
+                else: self.mongodb_db_data = None; self.mongodb_db_target_combo['values'] = []; self.mongodb_db_target_var.set("")
+                return False
             
             if not data:
-                messagebox.showerror("Error", "No data found in the file")
-                return
+                messagebox.showwarning("No Data", f"No data entries found in PowerAPI {data_type.upper()} file ({os.path.basename(file_path)})")
+                if data_type == "api": self.mongodb_api_data = None; self.mongodb_api_target_combo['values'] = []; self.mongodb_api_target_var.set("")
+                else: self.mongodb_db_data = None; self.mongodb_db_target_combo['values'] = []; self.mongodb_db_target_var.set("")
+                return False
             
-            # Validate required fields in each entry
             required_fields = ["timestamp", "power", "target"]
-            invalid_entries = []
-            for i, entry in enumerate(data):
-                if not all(field in entry for field in required_fields):
-                    invalid_entries.append(i)
-            
-            if invalid_entries:
+            if not all(all(field in entry for field in required_fields) for entry in data):
                 messagebox.showerror("Error", 
-                    f"Invalid data format: Missing required fields in entries {invalid_entries[:5]}\n"
-                    f"Each entry must contain: {', '.join(required_fields)}")
-                return
+                    f"Invalid data format in PowerAPI {data_type.upper()} file ({os.path.basename(file_path)}): Some entries are missing required fields ({', '.join(required_fields)}).")
+                if data_type == "api": self.mongodb_api_data = None; self.mongodb_api_target_combo['values'] = []; self.mongodb_api_target_var.set("")
+                else: self.mongodb_db_data = None; self.mongodb_db_target_combo['values'] = []; self.mongodb_db_target_var.set("")
+                return False
             
-            # Get distinct targets
             targets = {entry.get("target", "") for entry in data if entry.get("target")}
-            distinct_targets = list(targets)
-            
+            distinct_targets = sorted(list(targets)) # Sort for consistent display
+
             if not distinct_targets:
-                messagebox.showwarning("Warning", "No target services found in the data file")
-                return
+                messagebox.showwarning("No Targets", f"No target services found in PowerAPI {data_type.upper()} file ({os.path.basename(file_path)})")
+                if data_type == "api": self.mongodb_api_data = None; self.mongodb_api_target_combo['values'] = []; self.mongodb_api_target_var.set("")
+                else: self.mongodb_db_data = None; self.mongodb_db_target_combo['values'] = []; self.mongodb_db_target_var.set("")
+                return False
             
-            # Update target service combobox
             selected_target = None
+            container_id_to_match = None
             if data_type == "api":
                 self.mongodb_api_target_combo['values'] = distinct_targets
-                if distinct_targets:
-                    # Try to auto-select based on container ID
-                    if self.api_container_id:
-                        for target in distinct_targets:
-                            if self.api_container_id in target:
-                                selected_target = target
-                                print(f"DEBUG: Auto-selected PowerAPI API target '{selected_target}' based on ID '{self.api_container_id}'") # DEBUG
-                                break
-                    # Fallback to first target if no match or ID not available
-                    if not selected_target:
-                        selected_target = distinct_targets[0]
-                    self.mongodb_api_target_combo.set(selected_target)
+                container_id_to_match = self.api_container_id
             else: # data_type == "db"
                 self.mongodb_db_target_combo['values'] = distinct_targets
-                if distinct_targets:
-                    # Try to auto-select based on container ID
-                    if self.db_container_id:
-                        for target in distinct_targets:
-                            if self.db_container_id in target:
-                                selected_target = target
-                                print(f"DEBUG: Auto-selected PowerAPI DB target '{selected_target}' based on ID '{self.db_container_id}'") # DEBUG
-                                break
-                    # Fallback to first target if no match or ID not available
-                    if not selected_target:
-                        selected_target = distinct_targets[0]
-                    self.mongodb_db_target_combo.set(selected_target)
+                container_id_to_match = self.db_container_id
+
+            if container_id_to_match:
+                found_match = False
+                for target in distinct_targets:
+                    if container_id_to_match in target: # Partial match for container ID
+                        selected_target = target
+                        found_match = True
+                        print(f"DEBUG: Auto-selected PowerAPI {data_type.upper()} target '{selected_target}' based on partial ID '{container_id_to_match}'") # DEBUG
+                        break
+                if not found_match:
+                    print(f"WARNING: No PowerAPI {data_type.upper()} target found containing '{container_id_to_match}'. Defaulting to first target if available.") # DEBUG
             
-            # Store the raw data for later filtering
+            if not selected_target and distinct_targets: # Fallback to first target if no match or ID not available
+                selected_target = distinct_targets[0]
+                
             if data_type == "api":
+                self.mongodb_api_target_var.set(selected_target if selected_target else "")
                 self.mongodb_api_data = data
             else:
+                self.mongodb_db_target_var.set(selected_target if selected_target else "")
                 self.mongodb_db_data = data
             
             self.status_var.set(f"Loaded PowerAPI {data_type.upper()} Server energy data with {len(distinct_targets)} target services")
-            self.force_plot_update()
             
+            return True
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to load PowerAPI data: {str(e)}")
+            messagebox.showerror("Error", f"Failed to load PowerAPI {data_type.upper()} data from {os.path.basename(file_path)}: {str(e)}")
             self.status_var.set(f"Error loading PowerAPI {data_type.upper()} Server data")
+            if data_type == "api": self.mongodb_api_data = None; self.mongodb_api_target_combo['values'] = []; self.mongodb_api_target_var.set("")
+            else: self.mongodb_db_data = None; self.mongodb_db_target_combo['values'] = []; self.mongodb_db_target_var.set("")
+            return False
     
     def _get_filtered_mongodb_data(self, data, target_service, start_time_ms=None, end_time_ms=None, strict_filtering=True):
         """
@@ -2244,44 +2587,42 @@ class ExperimentVisualizer:
             return None
             
         # Extract relevant data for the target service
-        filtered_data = [
+        filtered_data_list = [
             {
-                "timestamp": entry["timestamp"]["$date"],
-                "power": entry["power"]  # Already in Watts, no conversion needed
+                "timestamp": entry["timestamp"]["$date"], # PowerAPI timestamps are ISO8601 strings within "$date"
+                "power": entry["power"]  # Already in Watts
             }
             for entry in data if entry.get("target") == target_service
         ]
         
-        if not filtered_data:
+        if not filtered_data_list:
             return None
             
-        # Convert to DataFrame and parse timestamps
-        df = pd.DataFrame(filtered_data)
-        # PowerAPI timestamps are in ISO8601 format strings, not seconds
+        df = pd.DataFrame(filtered_data_list)
+        # PowerAPI timestamps are in ISO8601 format strings, which pandas can parse directly
         df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601', utc=True)
         df.sort_values('timestamp', inplace=True)
         
         # Filter by time boundaries if provided
         if start_time_ms is not None and end_time_ms is not None:
             # Convert millisecond timestamps to pandas datetime objects
-            start_time = pd.to_datetime(start_time_ms, unit='ms', utc=True)
-            end_time = pd.to_datetime(end_time_ms, unit='ms', utc=True)
+            start_time_dt = pd.to_datetime(start_time_ms, unit='ms', utc=True)
+            end_time_dt = pd.to_datetime(end_time_ms, unit='ms', utc=True)
             
-            # Apply the time filter
-            df = df[(df['timestamp'] >= start_time) & (df['timestamp'] <= end_time)]
+            original_len = len(df)
+            df = df[(df['timestamp'] >= start_time_dt) & (df['timestamp'] <= end_time_dt)]
             
-            # If no data remains after filtering, handle based on strict filtering mode
             if df.empty:
                 if strict_filtering:
-                    self.status_var.set(f"No PowerAPI data found within the experiment time range")
+                    self.status_var.set(f"No PowerAPI data for '{target_service}' found within the experiment time range.")
                     return None
                 else:
-                    # In lenient mode, return the original data
-                    self.status_var.set(f"No PowerAPI data found within time range, showing all data")
-                    df = pd.DataFrame(filtered_data)
+                    self.status_var.set(f"Warning: No PowerAPI data for '{target_service}' found within time range, showing all data.")
+                    # Revert to original data if strict filtering is off and no data was found in range
+                    df = pd.DataFrame(filtered_data_list)
                     df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601', utc=True)
                     df.sort_values('timestamp', inplace=True)
-                
+        
         return df
 
     # Add a new function to process MongoDB data with windowing
@@ -2300,8 +2641,8 @@ class ExperimentVisualizer:
             
         # Initialize variables for accumulation
         processed_data = []
-        # Convert timestamps to milliseconds for consistent handling
-        df['timestamp_ms'] = df['timestamp'].astype(int) // 10**6  # Convert nanoseconds to milliseconds
+        # Convert timestamps to milliseconds since epoch for consistent handling
+        df['timestamp_ms'] = (df['timestamp'].astype(np.int64) // 10**6)  # Convert nanoseconds to milliseconds
         
         # Sort by timestamp
         df = df.sort_values('timestamp_ms')
@@ -2314,19 +2655,25 @@ class ExperimentVisualizer:
             milliseconds = row['timestamp_ms']
             power = row['power']
             
-            if current_window_start is None or milliseconds >= current_window_start + window_size_ms:
-                if current_window_start is not None:
-                    # Create datetime from milliseconds
-                    dt = pd.to_datetime(current_window_start, unit='ms', utc=True)
-                    processed_data.append((current_window_start, accumulated_power, dt))
-                current_window_start = milliseconds
+            if current_window_start is None:
+                # Align to window boundary: start of the window that contains 'milliseconds'
+                current_window_start = milliseconds - (milliseconds % window_size_ms)
+                accumulated_power = power
+            elif milliseconds >= current_window_start + window_size_ms:
+                # Data point falls into a new window, or past the current one.
+                # Save the current window's accumulated data (average power for the window)
+                dt = self._convert_to_eet(current_window_start)
+                processed_data.append((current_window_start, accumulated_power, dt))
+                
+                # Start a new window, aligning its start to the window boundary
+                current_window_start = milliseconds - (milliseconds % window_size_ms)
                 accumulated_power = power
             else:
                 accumulated_power += power
         
-        # Add final point
+        # Add the final point after the loop
         if current_window_start is not None:
-            dt = pd.to_datetime(current_window_start, unit='ms', utc=True)
+            dt = self._convert_to_eet(current_window_start)
             processed_data.append((current_window_start, accumulated_power, dt))
         
         # Convert processed data to DataFrame
@@ -2334,7 +2681,9 @@ class ExperimentVisualizer:
         
         return result_df
 
+
 if __name__ == "__main__":
     root = tk.Tk()
     app = ExperimentVisualizer(root)
-    root.mainloop() 
+
+    root.mainloop()

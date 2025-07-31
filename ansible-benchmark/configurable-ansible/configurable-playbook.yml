@@ -847,16 +847,10 @@
         cd {{ project_directory }}/core
         mvn clean install -P simple-jar
 
-    - name: Copy benchmark-config.xml to server
+    - name: Copy custom benchmark-config.xml (local) to the server
       copy:
         src: "../benchmark-config/benchmark-config.xml"
-        dest: "{{ project_directory }}/benchbase/benchmark-config.xml"
-
-    - name: Update benchmark configuration file
-      lineinfile:
-        path: "{{ project_directory }}/benchbase/benchmark-config.xml"
-        regexp: '^    <benchmark-config>'
-        line: "    <benchmark-config>"
+        dest: "{{ project_directory }}/api-http/benchmark-config.xml"
 
     - name: Modify API port URL in ApiBenchmark.java
       lineinfile:
