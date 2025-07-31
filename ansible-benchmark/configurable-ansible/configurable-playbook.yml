@@ -850,7 +850,7 @@
     - name: Copy custom benchmark-config.xml (local) to the server
       copy:
         src: "../benchmark-config/benchmark-config.xml"
-        dest: "{{ project_directory }}/api-http/benchmark-config.xml"
+        dest: "{{ project_directory }}/api-http/src/main/resources/benchmark-config.xml"
 
     - name: Modify API port URL in ApiBenchmark.java
       lineinfile:
