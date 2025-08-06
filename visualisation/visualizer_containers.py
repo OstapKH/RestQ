@@ -17,6 +17,8 @@ from plotly.subplots import make_subplots
 import threading
 import time
 
+# TODO: Reload state of scrollbar when new data is loaded
+# TODO: Change Experiment duration to actual one.
 class LoadingWindow:
     """A loading window that shows progress while data is being loaded."""
     
@@ -315,13 +317,13 @@ class ExperimentVisualizer:
         window_size_entry.pack(side=tk.LEFT, padx=3)
         window_size_entry.bind("<Return>", lambda e: self.force_plot_update())
         
-        ttk.Checkbutton(row2_frame, text="Show Scaphandre API", 
+        ttk.Checkbutton(row2_frame, text="Scaph. API Server Data", 
                        variable=self.show_scaphandre_api_var, command=self.force_plot_update).pack(side=tk.LEFT, padx=(10, 3))
-        ttk.Checkbutton(row2_frame, text="Show Scaphandre DB", 
+        ttk.Checkbutton(row2_frame, text="Scaph. DB Server Data", 
                        variable=self.show_scaphandre_db_var, command=self.force_plot_update).pack(side=tk.LEFT, padx=3)
-        ttk.Checkbutton(row2_frame, text="Show Host API", 
+        ttk.Checkbutton(row2_frame, text="Scaph. Host machine API Data", 
                        variable=self.show_host_api_var, command=self.force_plot_update).pack(side=tk.LEFT, padx=3)
-        ttk.Checkbutton(row2_frame, text="Show Host DB", 
+        ttk.Checkbutton(row2_frame, text="Scaph. Host machine DB Data", 
                        variable=self.show_host_db_var, command=self.force_plot_update).pack(side=tk.LEFT, padx=3)
     
     def switch_tab(self, tab_name):
@@ -540,7 +542,9 @@ class ExperimentVisualizer:
             
             if "benchmark_results" in self.data and isinstance(self.data["benchmark_results"], dict) and "experiments" in self.data["benchmark_results"] and isinstance(self.data["benchmark_results"]["experiments"], dict):
                 experiments = self.data["benchmark_results"]["experiments"]
-                experiment_ids = list(experiments.keys())
+                
+                # Sort experiments by their start timestamp
+                experiment_ids = self._sort_experiments_by_start_time(experiments)
                 print(f"Found {len(experiment_ids)} experiments in benchmark_results.") # DEBUG
                 
                 all_data_option = "All data"
@@ -658,8 +662,10 @@ class ExperimentVisualizer:
                 ttk.Label(self.details_frame, text=f"Total Experiments: {len(experiments)}", font=("Arial", 10)).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
                 row += 1
                 
-                # Add a brief overview of each experiment
-                for exp_id, exp_data in experiments.items():
+                # Add a brief overview of each experiment in sorted order
+                sorted_experiment_ids = self._sort_experiments_by_start_time(experiments)
+                for exp_id in sorted_experiment_ids:
+                    exp_data = experiments[exp_id]
                     ttk.Label(self.details_frame, text=f"Experiment: {exp_id}", font=("Arial", 10, "bold")).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
                     row += 1
                     
@@ -673,6 +679,10 @@ class ExperimentVisualizer:
                     
                     if "requests_per_second" in exp_data:
                         ttk.Label(self.details_frame, text=f"Rate: {exp_data['requests_per_second']} req/s", font=("Arial", 10)).grid(row=row, column=0, sticky=tk.W, padx=20, pady=2)
+                        row += 1
+                    
+                    if "connections" in exp_data:
+                        ttk.Label(self.details_frame, text=f"Connections: {exp_data['connections']}", font=("Arial", 10)).grid(row=row, column=0, sticky=tk.W, padx=20, pady=2)
                         row += 1
                     
                     # Add a separator
@@ -698,8 +708,10 @@ class ExperimentVisualizer:
                 ttk.Label(self.details_frame, text=f"Total Experiments: {len(filtered_experiments)} (filtered from {len(experiments)})", font=("Arial", 10)).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
                 row += 1
                 
-                # Add a brief overview of each filtered experiment
-                for exp_id, exp_data in filtered_experiments.items():
+                # Add a brief overview of each filtered experiment in sorted order
+                sorted_experiment_ids = self._sort_experiments_by_start_time(filtered_experiments)
+                for exp_id in sorted_experiment_ids:
+                    exp_data = filtered_experiments[exp_id]
                     ttk.Label(self.details_frame, text=f"Experiment: {exp_id}", font=("Arial", 10, "bold")).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
                     row += 1
                     
@@ -713,6 +725,10 @@ class ExperimentVisualizer:
                     
                     if "requests_per_second" in exp_data:
                         ttk.Label(self.details_frame, text=f"Rate: {exp_data['requests_per_second']} req/s", font=("Arial", 10)).grid(row=row, column=0, sticky=tk.W, padx=20, pady=2)
+                        row += 1
+                    
+                    if "connections" in exp_data:
+                        ttk.Label(self.details_frame, text=f"Connections: {exp_data['connections']}", font=("Arial", 10)).grid(row=row, column=0, sticky=tk.W, padx=20, pady=2)
                         row += 1
                     
                     # Add a separator
@@ -754,6 +770,12 @@ class ExperimentVisualizer:
         if "runs_configured" in experiment:
             ttk.Label(self.details_frame, text="Runs configured:").grid(row=row, column=0, sticky=tk.W, padx=5, pady=2)
             ttk.Label(self.details_frame, text=f"{experiment['runs_configured']}").grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
+            row += 1
+            
+        # Show connections
+        if "connections" in experiment:
+            ttk.Label(self.details_frame, text="Connections:").grid(row=row, column=0, sticky=tk.W, padx=5, pady=2)
+            ttk.Label(self.details_frame, text=f"{experiment['connections']}").grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
             row += 1
             
         # Show endpoint probabilities
@@ -2470,6 +2492,37 @@ class ExperimentVisualizer:
         experiment_times.sort(key=lambda x: x[1])
         
         return experiment_times
+    
+    def _sort_experiments_by_start_time(self, experiments):
+        """
+        Sort experiments by their start timestamp.
+        
+        Args:
+            experiments: Dictionary of experiments
+            
+        Returns:
+            List of experiment IDs sorted by start timestamp (earliest first)
+        """
+        experiment_timestamps = []
+        
+        for experiment_id, experiment_data in experiments.items():
+            # Get the start timestamp of the first run
+            start_timestamp = None
+            if "runs" in experiment_data and experiment_data["runs"]:
+                first_run = experiment_data["runs"][0]
+                start_timestamp = first_run.get("start_timestamp")
+            
+            # If no start timestamp found, use a very large timestamp to put it at the end
+            if start_timestamp is None:
+                start_timestamp = float('inf')
+            
+            experiment_timestamps.append((experiment_id, start_timestamp))
+        
+        # Sort by timestamp (earliest first)
+        experiment_timestamps.sort(key=lambda x: x[1])
+        
+        # Return just the experiment IDs in sorted order
+        return [exp_id for exp_id, _ in experiment_timestamps]
     
     # _browse_mongodb_file is removed as load_folder handles it
     

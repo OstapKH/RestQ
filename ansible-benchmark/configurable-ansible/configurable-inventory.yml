@@ -63,7 +63,7 @@ all:
     # ====================================
     # Benchmark Type: TPCC (transaction processing) or TPCH (decision support)
     # Options: TPCC, TPCH
-    benchmark_type: TPCH
+    benchmark_type: TPCC
     
     # Scale Factor: 
     # - For TPCC: number of warehouses (must be integer like 1.0, 5.0)
