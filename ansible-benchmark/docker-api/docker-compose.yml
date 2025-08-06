@@ -11,7 +11,7 @@ services:
     ports:
       - "8086:8086"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://<your-db-host>:5432/tpccdb
+      SPRING_DATASOURCE_URL: jdbc:postgresql://<your-db-host>:5432/tpchdb
       SPRING_DATASOURCE_USERNAME: admin
       SPRING_DATASOURCE_PASSWORD: password
     networks:
