@@ -49,7 +49,7 @@ all:
     # ====================================
     # Choose between using pre-made dumps or benchbase fulfillment
     # Options: dumps, benchbase, huggingface
-    database_source: huggingface  # Use 'huggingface' to download from Hugging Face, 'dumps' for local, 'benchbase' for fulfillment.
+    database_source: benchbase  # Use 'huggingface' to download from Hugging Face, 'dumps' for local, 'benchbase' for fulfillment.
     
     # Configuration for Hugging Face
     huggingface_repo: "OstapK/tpch_sc_f_1"
