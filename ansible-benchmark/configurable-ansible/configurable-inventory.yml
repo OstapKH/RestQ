@@ -68,7 +68,71 @@ all:
     # Scale Factor: 
     # - For TPCC: number of warehouses (must be integer like 1.0, 5.0)
     # - For TPCH: data size multiplier (0.01, 0.1, 1.0, 10.0)  
-    scale_factor: "1.0"
+    scale_factor: "100.0"
+    
+    # ====================================
+    # Hikari Connection Pool Configuration
+    # ====================================
+    # HikariCP connection pool settings for database connections
+    hikari_config:
+      # Auto-commit behavior for connections
+      auto_commit: true
+      
+      # Connection timeout in milliseconds (time to wait for a connection from the pool)
+      connection_timeout: 30000
+      
+      # Idle timeout in milliseconds (how long a connection can sit idle in the pool)
+      idle_timeout: 600000
+      
+      # Keepalive time in milliseconds (how often to test idle connections)
+      keepalive_time: 30000
+      
+      # Maximum lifetime of a connection in milliseconds
+      max_lifetime: 1800000
+      
+      # Maximum number of connections in the pool
+      maximum_pool_size: 27
+      
+      # Minimum number of idle connections maintained in the pool
+      minimum_idle: 5
+      
+      # Timeout for initialization failures in milliseconds
+      initialization_fail_timeout: 1
+      
+      # Whether to isolate internal queries (prevents connection leaks)
+      isolate_internal_queries: false
+      
+      # Whether to allow pool suspension
+      allow_pool_suspension: false
+      
+      # Whether connections are read-only
+      read_only: false
+      
+      # Whether to register MBeans for monitoring
+      register_mbeans: false
+      
+      # Validation timeout in milliseconds (time to wait for validation query)
+      validation_timeout: 5000
+    
+    # ====================================
+    # Environment Variables for Application
+    # ====================================
+    # Environment variables that will be set for the Spring Boot application
+    app_environment_vars:
+      # Hikari Connection Pool Environment Variables
+      HIKARI_AUTO_COMMIT: "{{ hikari_config.auto_commit | string }}"
+      HIKARI_CONNECTION_TIMEOUT: "{{ hikari_config.connection_timeout | string }}"
+      HIKARI_IDLE_TIMEOUT: "{{ hikari_config.idle_timeout | string }}"
+      HIKARI_KEEPALIVE_TIME: "{{ hikari_config.keepalive_time | string }}"
+      HIKARI_MAX_LIFETIME: "{{ hikari_config.max_lifetime | string }}"
+      HIKARI_MAXIMUM_POOL_SIZE: "{{ hikari_config.maximum_pool_size | string }}"
+      HIKARI_MINIMUM_IDLE: "{{ hikari_config.minimum_idle | string }}"
+      HIKARI_INITIALIZATION_FAIL_TIMEOUT: "{{ hikari_config.initialization_fail_timeout | string }}"
+      HIKARI_ISOLATE_INTERNAL_QUERIES: "{{ hikari_config.isolate_internal_queries | string }}"
+      HIKARI_ALLOW_POOL_SUSPENSION: "{{ hikari_config.allow_pool_suspension | string }}"
+      HIKARI_READ_ONLY: "{{ hikari_config.read_only | string }}"
+      HIKARI_REGISTER_MBEANS: "{{ hikari_config.register_mbeans | string }}"
+      HIKARI_VALIDATION_TIMEOUT: "{{ hikari_config.validation_timeout | string }}"
     
     # ====================================
     # Experiment Tracking
