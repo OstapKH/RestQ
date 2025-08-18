@@ -9,12 +9,12 @@ services:
       POSTGRES_PASSWORD: password
       POSTGRES_USER: admin
       POSTGRES_DB: tpccdb
-    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    command: postgres -c config_file=/var/lib/postgresql/data/postgresql.conf
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./postgresql-config/postgresql.conf:/etc/postgresql/postgresql.conf
+      - ./postgresql-config/postgresql.conf:/var/lib/postgresql/data/postgresql.conf
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d tpccdb"]
       interval: 10s
