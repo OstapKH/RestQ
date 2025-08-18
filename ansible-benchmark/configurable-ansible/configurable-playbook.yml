@@ -195,6 +195,13 @@
           - Duration: {{ experiment_duration }}
           - Timestamp: {{ timestamp }}
 
+    - name: Validate PostgreSQL and Hikari configuration compatibility
+      assert:
+        that:
+          - postgresql_config.max_connections >= hikari_config.maximum_pool_size
+        fail_msg: "PostgreSQL max_connections ({{ postgresql_config.max_connections }}) must be >= Hikari maximum_pool_size ({{ hikari_config.maximum_pool_size }})"
+        success_msg: "PostgreSQL and Hikari configuration are compatible"
+
     - name: Download Java 23
       get_url:
         url: https://download.oracle.com/java/23/archive/jdk-23_linux-x64_bin.deb
@@ -312,6 +319,40 @@
         msg: "SQL dumps copied to remote node at {{ dumps_directory }}"
       when: database_source == "dumps" and deployment_mode != "localhost"
 
+    # ====================================
+    # PostgreSQL Configuration Setup
+    # ====================================
+    
+    - name: Create PostgreSQL configuration directory
+      file:
+        path: "{{ project_directory }}/ansible-benchmark/docker-db/postgresql-config"
+        state: directory
+        mode: '0755'
+
+    - name: Create custom postgresql.conf file
+      template:
+        src: ../psql-config/postgresql.conf.j2
+        dest: "{{ project_directory }}/ansible-benchmark/docker-db/postgresql-config/postgresql.conf"
+        mode: '0644'
+      vars:
+        postgresql_config: "{{ postgresql_config }}"
+
+    - name: Log PostgreSQL configuration
+      debug:
+        msg: |
+          PostgreSQL Configuration Applied:
+          - shared_buffers: {{ postgresql_config.shared_buffers }}
+          - work_mem: {{ postgresql_config.work_mem }}
+          - maintenance_work_mem: {{ postgresql_config.maintenance_work_mem }}
+          - max_stack_depth: {{ postgresql_config.max_stack_depth }}
+          - max_connections: {{ postgresql_config.max_connections }}
+
+    - name: Update docker-compose.yml with correct database name
+      lineinfile:
+        path: "{{ project_directory }}/ansible-benchmark/docker-db/docker-compose.yml"
+        regexp: '^      POSTGRES_DB:.*'
+        line: "      POSTGRES_DB: {{ database_name }}"
+
     - name: Start PostgreSQL with docker-compose
       shell: |
         cd {{ project_directory }}/ansible-benchmark/docker-db
@@ -330,9 +371,38 @@
         timeout: 60
         state: started
 
+    - name: Restart PostgreSQL to apply configuration changes
+      shell: |
+        cd {{ project_directory }}/ansible-benchmark/docker-db
+        docker-compose restart postgres
+      register: restart_result
+      retries: 3
+      delay: 10
+      until: restart_result is success
+      ignore_errors: true
+
+    - name: Wait for PostgreSQL to be ready after restart
+      wait_for:
+        host: 127.0.0.1
+        port: "{{ postgres_port }}"
+        delay: 5
+        timeout: 60
+        state: started
+
     - name: Log database setup
       debug:
-        msg: "PostgreSQL container is running with DB '{{ database_name }}' and user 'admin'"
+        msg: "PostgreSQL container is running with DB '{{ database_name }}' and user 'admin' with custom configuration"
+
+    - name: Verify PostgreSQL configuration
+      shell: |
+        docker exec db-docker-container psql -U admin -d {{ database_name }} -c "SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW max_stack_depth; SHOW max_connections;"
+      register: postgres_config_verify
+      ignore_errors: true
+
+    - name: Log PostgreSQL configuration verification
+      debug:
+        msg: "PostgreSQL configuration verification output: {{ postgres_config_verify.stdout_lines }}"
+      when: postgres_config_verify.rc == 0
 
     - name: Set installation directory for libraries
       set_fact:
@@ -778,91 +848,91 @@
       lineinfile:
         path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
         regexp: '^      HIKARI_AUTO_COMMIT:.*'
-        line: "      HIKARI_AUTO_COMMIT: {{ app_environment_vars.HIKARI_AUTO_COMMIT }}"
+        line: "      HIKARI_AUTO_COMMIT: \"{{ app_environment_vars.HIKARI_AUTO_COMMIT }}\""
         insertafter: "BENCHMARK_TYPE:"
 
     - name: Add Hikari connection timeout environment variable
       lineinfile:
         path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
         regexp: '^      HIKARI_CONNECTION_TIMEOUT:.*'
-        line: "      HIKARI_CONNECTION_TIMEOUT: {{ app_environment_vars.HIKARI_CONNECTION_TIMEOUT }}"
+        line: "      HIKARI_CONNECTION_TIMEOUT: \"{{ app_environment_vars.HIKARI_CONNECTION_TIMEOUT }}\""
         insertafter: "HIKARI_AUTO_COMMIT:"
 
     - name: Add Hikari idle timeout environment variable
       lineinfile:
         path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
         regexp: '^      HIKARI_IDLE_TIMEOUT:.*'
-        line: "      HIKARI_IDLE_TIMEOUT: {{ app_environment_vars.HIKARI_IDLE_TIMEOUT }}"
+        line: "      HIKARI_IDLE_TIMEOUT: \"{{ app_environment_vars.HIKARI_IDLE_TIMEOUT }}\""
         insertafter: "HIKARI_CONNECTION_TIMEOUT:"
 
     - name: Add Hikari keepalive time environment variable
       lineinfile:
         path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
         regexp: '^      HIKARI_KEEPALIVE_TIME:.*'
-        line: "      HIKARI_KEEPALIVE_TIME: {{ app_environment_vars.HIKARI_KEEPALIVE_TIME }}"
+        line: "      HIKARI_KEEPALIVE_TIME: \"{{ app_environment_vars.HIKARI_KEEPALIVE_TIME }}\""
         insertafter: "HIKARI_IDLE_TIMEOUT:"
 
     - name: Add Hikari max lifetime environment variable
       lineinfile:
         path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
         regexp: '^      HIKARI_MAX_LIFETIME:.*'
-        line: "      HIKARI_MAX_LIFETIME: {{ app_environment_vars.HIKARI_MAX_LIFETIME }}"
+        line: "      HIKARI_MAX_LIFETIME: \"{{ app_environment_vars.HIKARI_MAX_LIFETIME }}\""
         insertafter: "HIKARI_KEEPALIVE_TIME:"
 
     - name: Add Hikari maximum pool size environment variable
       lineinfile:
         path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
         regexp: '^      HIKARI_MAXIMUM_POOL_SIZE:.*'
-        line: "      HIKARI_MAXIMUM_POOL_SIZE: {{ app_environment_vars.HIKARI_MAXIMUM_POOL_SIZE }}"
+        line: "      HIKARI_MAXIMUM_POOL_SIZE: \"{{ app_environment_vars.HIKARI_MAXIMUM_POOL_SIZE }}\""
         insertafter: "HIKARI_MAX_LIFETIME:"
 
     - name: Add Hikari minimum idle environment variable
       lineinfile:
         path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
         regexp: '^      HIKARI_MINIMUM_IDLE:.*'
-        line: "      HIKARI_MINIMUM_IDLE: {{ app_environment_vars.HIKARI_MINIMUM_IDLE }}"
+        line: "      HIKARI_MINIMUM_IDLE: \"{{ app_environment_vars.HIKARI_MINIMUM_IDLE }}\""
         insertafter: "HIKARI_MAXIMUM_POOL_SIZE:"
 
     - name: Add Hikari initialization fail timeout environment variable
       lineinfile:
         path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
         regexp: '^      HIKARI_INITIALIZATION_FAIL_TIMEOUT:.*'
-        line: "      HIKARI_INITIALIZATION_FAIL_TIMEOUT: {{ app_environment_vars.HIKARI_INITIALIZATION_FAIL_TIMEOUT }}"
+        line: "      HIKARI_INITIALIZATION_FAIL_TIMEOUT: \"{{ app_environment_vars.HIKARI_INITIALIZATION_FAIL_TIMEOUT }}\""
         insertafter: "HIKARI_MINIMUM_IDLE:"
 
     - name: Add Hikari isolate internal queries environment variable
       lineinfile:
         path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
         regexp: '^      HIKARI_ISOLATE_INTERNAL_QUERIES:.*'
-        line: "      HIKARI_ISOLATE_INTERNAL_QUERIES: {{ app_environment_vars.HIKARI_ISOLATE_INTERNAL_QUERIES }}"
+        line: "      HIKARI_ISOLATE_INTERNAL_QUERIES: \"{{ app_environment_vars.HIKARI_ISOLATE_INTERNAL_QUERIES }}\""
         insertafter: "HIKARI_INITIALIZATION_FAIL_TIMEOUT:"
 
     - name: Add Hikari allow pool suspension environment variable
       lineinfile:
         path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
         regexp: '^      HIKARI_ALLOW_POOL_SUSPENSION:.*'
-        line: "      HIKARI_ALLOW_POOL_SUSPENSION: {{ app_environment_vars.HIKARI_ALLOW_POOL_SUSPENSION }}"
+        line: "      HIKARI_ALLOW_POOL_SUSPENSION: \"{{ app_environment_vars.HIKARI_ALLOW_POOL_SUSPENSION }}\""
         insertafter: "HIKARI_ISOLATE_INTERNAL_QUERIES:"
 
     - name: Add Hikari read only environment variable
       lineinfile:
         path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
         regexp: '^      HIKARI_READ_ONLY:.*'
-        line: "      HIKARI_READ_ONLY: {{ app_environment_vars.HIKARI_READ_ONLY }}"
+        line: "      HIKARI_READ_ONLY: \"{{ app_environment_vars.HIKARI_READ_ONLY }}\""
         insertafter: "HIKARI_ALLOW_POOL_SUSPENSION:"
 
     - name: Add Hikari register mbeans environment variable
       lineinfile:
         path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
         regexp: '^      HIKARI_REGISTER_MBEANS:.*'
-        line: "      HIKARI_REGISTER_MBEANS: {{ app_environment_vars.HIKARI_REGISTER_MBEANS }}"
+        line: "      HIKARI_REGISTER_MBEANS: \"{{ app_environment_vars.HIKARI_REGISTER_MBEANS }}\""
         insertafter: "HIKARI_READ_ONLY:"
 
     - name: Add Hikari validation timeout environment variable
       lineinfile:
         path: "{{ project_directory }}/ansible-benchmark/docker-api/docker-compose.yml"
         regexp: '^      HIKARI_VALIDATION_TIMEOUT:.*'
-        line: "      HIKARI_VALIDATION_TIMEOUT: {{ app_environment_vars.HIKARI_VALIDATION_TIMEOUT }}"
+        line: "      HIKARI_VALIDATION_TIMEOUT: \"{{ app_environment_vars.HIKARI_VALIDATION_TIMEOUT }}\""
         insertafter: "HIKARI_REGISTER_MBEANS:"
 
     - name: Start API server container
