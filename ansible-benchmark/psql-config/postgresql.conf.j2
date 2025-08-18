@@ -17,9 +17,9 @@ work_mem = {{ postgresql_config.work_mem }}
 # Should be larger than work_mem for maintenance operations
 maintenance_work_mem = {{ postgresql_config.maintenance_work_mem }}
 
-# Effective cache size (used by query planner), commented
+# Effective cache size (used by query planner)
 # Default: 4GB (should be set to ~75% of available RAM)
-# effective_cache_size = 4GB
+effective_cache_size = 4GB
 
 #------------------------------------------------------------------------------
 # CONNECTION AND AUTHENTICATION
@@ -34,6 +34,18 @@ listen_addresses = 'localhost'
 
 # Port number (default: 5432)
 port = 5432
+
+#------------------------------------------------------------------------------
+# AUTHENTICATION
+#------------------------------------------------------------------------------
+
+# Authentication method for local connections
+# Default: trust (for development, use md5 or scram-sha-256 for production)
+local_auth_method = trust
+
+# Authentication method for host connections
+# Default: md5 (use scram-sha-256 for production)
+host_auth_method = md5
 
 #------------------------------------------------------------------------------
 # RESOURCE USAGE
