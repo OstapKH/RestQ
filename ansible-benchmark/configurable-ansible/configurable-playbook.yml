@@ -323,20 +323,6 @@
     # PostgreSQL Configuration Setup
     # ====================================
     
-    - name: Create PostgreSQL configuration directory
-      file:
-        path: "{{ project_directory }}/ansible-benchmark/docker-db/postgresql-config"
-        state: directory
-        mode: '0755'
-
-    - name: Create custom postgresql.conf file
-      template:
-        src: ../psql-config/postgresql.conf.j2
-        dest: "{{ project_directory }}/ansible-benchmark/docker-db/postgresql-config/postgresql.conf"
-        mode: '0644'
-      vars:
-        postgresql_config: "{{ postgresql_config }}"
-
     - name: Log PostgreSQL configuration
       debug:
         msg: |
@@ -353,10 +339,18 @@
         regexp: '^      POSTGRES_DB:.*'
         line: "      POSTGRES_DB: {{ database_name }}"
 
+    - name: Ensure postgres command flags in docker-compose
+      lineinfile:
+        path: "{{ project_directory }}/ansible-benchmark/docker-db/docker-compose.yml"
+        regexp: '^    command:.*'
+        line: "    command: postgres -c shared_buffers={{ postgresql_config.shared_buffers }} -c work_mem={{ postgresql_config.work_mem }} -c maintenance_work_mem={{ postgresql_config.maintenance_work_mem }} -c max_stack_depth={{ postgresql_config.max_stack_depth }} -c max_connections={{ postgresql_config.max_connections }}"
+        insertafter: '^      POSTGRES_DB:.*'
+
     - name: Start PostgreSQL with docker-compose
       shell: |
         cd {{ project_directory }}/ansible-benchmark/docker-db
-        docker-compose up -d
+        docker-compose down -v || true
+        docker-compose up -d --force-recreate --remove-orphans
       register: docker_compose_result
       retries: 3
       delay: 10
@@ -395,13 +389,17 @@
 
     - name: Verify PostgreSQL configuration
       shell: |
-        docker exec db-docker-container psql -U admin -d {{ database_name }} -c "SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW max_stack_depth; SHOW max_connections;"
+        docker exec db-docker-container psql -U admin -d {{ database_name }} -c "SHOW shared_buffers;" -At
+        docker exec db-docker-container psql -U admin -d {{ database_name }} -c "SHOW work_mem;" -At
+        docker exec db-docker-container psql -U admin -d {{ database_name }} -c "SHOW maintenance_work_mem;" -At
+        docker exec db-docker-container psql -U admin -d {{ database_name }} -c "SHOW max_stack_depth;" -At
+        docker exec db-docker-container psql -U admin -d {{ database_name }} -c "SHOW max_connections;" -At
       register: postgres_config_verify
       ignore_errors: true
 
     - name: Log PostgreSQL configuration verification
       debug:
-        msg: "PostgreSQL configuration verification output: {{ postgres_config_verify.stdout_lines }}"
+        msg: "Config values -> shared_buffers: {{ postgres_config_verify.stdout_lines[0] | default('n/a') }}, work_mem: {{ postgres_config_verify.stdout_lines[1] | default('n/a') }}, maintenance_work_mem: {{ postgres_config_verify.stdout_lines[2] | default('n/a') }}, max_stack_depth: {{ postgres_config_verify.stdout_lines[3] | default('n/a') }}, max_connections: {{ postgres_config_verify.stdout_lines[4] | default('n/a') }}"
       when: postgres_config_verify.rc == 0
 
     - name: Set installation directory for libraries
