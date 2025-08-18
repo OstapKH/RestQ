@@ -22,11 +22,11 @@ all:
     # ====================================
     # Define your own nodes when deployment_mode: manual
     manual_nodes:
-      node1_host: "192.168.1.100"  # Database Server
-      node2_host: "192.168.1.101"  # API Server  
-      node3_host: "192.168.1.102"  # Benchmark Client
-      ssh_user: "ubuntu"           # SSH username for manual nodes
-      ssh_key: "~/.ssh/id_rsa"     # SSH private key for manual nodes
+      node1_host: "chifflot-4.lille.grid5000.fr"  # Database Server
+      node2_host: "chifflot-5.lille.grid5000.fr"  # API Server  
+      node3_host: "chiclet-5.lille.grid5000.fr"   # Benchmark Client
+      ssh_user: "root"          # SSH username for manual nodes
+      ssh_key: "~/.ssh/grid5000_key"  # SSH private key for manual nodes
     
     # ====================================
     # Localhost Configuration (for localhost mode)
@@ -49,7 +49,7 @@ all:
     # ====================================
     # Choose between using pre-made dumps or benchbase fulfillment
     # Options: dumps, benchbase, huggingface
-    database_source: benchbase  # Use 'huggingface' to download from Hugging Face, 'dumps' for local, 'benchbase' for fulfillment.
+    database_source: huggingface  # Use 'huggingface' to download from Hugging Face, 'dumps' for local, 'benchbase' for fulfillment.
     
     # Configuration for Hugging Face
     huggingface_repo: "OstapK/tpch_sc_f_1"
@@ -63,7 +63,7 @@ all:
     # ====================================
     # Benchmark Type: TPCC (transaction processing) or TPCH (decision support)
     # Options: TPCC, TPCH
-    benchmark_type: TPCC
+    benchmark_type: TPCH
     
     # Scale Factor: 
     # - For TPCC: number of warehouses (must be integer like 1.0, 5.0)
@@ -116,7 +116,7 @@ all:
       max_lifetime: 1800000
       
       # Maximum number of connections in the pool
-      maximum_pool_size: 27
+      maximum_pool_size: 100
       
       # Minimum number of idle connections maintained in the pool
       minimum_idle: 5
