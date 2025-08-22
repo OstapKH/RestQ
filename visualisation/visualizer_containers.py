@@ -927,7 +927,7 @@ class ExperimentVisualizer:
                 ax.set_title(f'Energy Consumption for Experiment: {experiment_id}', fontsize=10)
             
             # Format the time axis
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
+            ax.xaxis.set_major_formatter(self._ms_time_formatter())
             ax.tick_params(axis='x', rotation=45)
             
             if api_df.empty and db_df.empty and host_api_df.empty and host_db_df.empty and (not self.mongodb_api_var.get() or self.mongodb_api_data is None) and (not self.mongodb_db_var.get() or self.mongodb_db_data is None):
@@ -1155,7 +1155,7 @@ class ExperimentVisualizer:
             else:
                 ax.set_title(f'Total Energy Consumed for Experiment: {experiment_id}', fontsize=10)
             
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
+            ax.xaxis.set_major_formatter(self._ms_time_formatter())
             ax.tick_params(axis='x', rotation=45)
             
             # Process API server data (java processes)
@@ -1303,9 +1303,9 @@ class ExperimentVisualizer:
             ax2.set_ylabel('Energy Consumption', fontsize=7)
             
             # Format time axes
-            ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
+            ax1.xaxis.set_major_formatter(self._ms_time_formatter())
             ax1.tick_params(axis='x', rotation=45)
-            ax2.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
+            ax2.xaxis.set_major_formatter(self._ms_time_formatter())
             ax2.tick_params(axis='x', rotation=45)
             
             has_scaphandre_api = not api_df.empty and self.show_scaphandre_api_var.get()
@@ -1570,10 +1570,10 @@ class ExperimentVisualizer:
                     ax.set_title(f'Request Latency for All Experiments (excluding warmup)', fontsize=10)
                 else:
                     ax.set_title(f'Request Latency for Experiment: {experiment_id}', fontsize=10)
-                
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
+
+                ax.xaxis.set_major_formatter(self._ms_time_formatter())
                 ax.tick_params(axis='x', rotation=45)
-                
+
                 experiment_colors = ['purple', 'green', 'orange', 'brown', 'magenta', 'cyan']
                 has_data = False
                 
@@ -1692,10 +1692,10 @@ class ExperimentVisualizer:
                     ax.set_xlabel('Time (EET)', fontsize=8)
                     ax.set_ylabel('Latency (ms)', fontsize=8)
                     ax.set_title(f'Request Latency for Experiment: {experiment_id}', fontsize=10)
-                    
-                    ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
+
+                    ax.xaxis.set_major_formatter(self._ms_time_formatter())
                     ax.tick_params(axis='x', rotation=45)
-                    
+
                     latency_data = []
                     for run in runs:
                         if "latencies" in run:
@@ -1765,10 +1765,10 @@ class ExperimentVisualizer:
                     ax.set_title(f'Request Throughput for All Experiments (excluding warmup)', fontsize=10)
                 else:
                     ax.set_title(f'Request Throughput for Experiment: {experiment_id}', fontsize=10)
-                
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=self.display_timezone))
+
+                ax.xaxis.set_major_formatter(self._ms_time_formatter())
                 ax.tick_params(axis='x', rotation=45)
-                
+
                 ax.yaxis.set_major_formatter(plt.FormatStrFormatter('%.5f'))
                 
                 experiment_colors = ['purple', 'green', 'orange', 'brown', 'magenta', 'cyan']
@@ -2679,35 +2679,42 @@ class ExperimentVisualizer:
         return df
 
     # Add a new function to process MongoDB data with windowing
+    def _ms_time_formatter(self):
+        """Create a time formatter that includes milliseconds"""
+        def _format(x, pos=None):
+            dt = mdates.num2date(x, tz=self.display_timezone)
+            return dt.strftime('%H:%M:%S.%f')[:-3]  # Remove last 3 digits to show milliseconds
+        return mticker.FuncFormatter(_format)
+
     def _process_mongodb_data(self, df, window_size_ms):
         """Process PowerAPI energy data with time-based windowing
-        
+
         Args:
             df: DataFrame with PowerAPI energy data (must have 'timestamp' and 'power' columns)
             window_size_ms: Size of accumulation window in milliseconds
-            
+
         Returns:
             DataFrame with processed data using windowing
         """
         if df is None or df.empty:
             return pd.DataFrame(columns=['timestamp', 'power', 'datetime'])
-            
+
         # Initialize variables for accumulation
         processed_data = []
         # Convert timestamps to milliseconds since epoch for consistent handling
         df['timestamp_ms'] = (df['timestamp'].astype(np.int64) // 10**6)  # Convert nanoseconds to milliseconds
-        
+
         # Sort by timestamp
         df = df.sort_values('timestamp_ms')
-        
+
         # Apply windowing
         current_window_start = None
         accumulated_power = 0.0
-        
+
         for _, row in df.iterrows():
             milliseconds = row['timestamp_ms']
             power = row['power']
-            
+
             if current_window_start is None:
                 # Align to window boundary: start of the window that contains 'milliseconds'
                 current_window_start = milliseconds - (milliseconds % window_size_ms)
@@ -2717,21 +2724,21 @@ class ExperimentVisualizer:
                 # Save the current window's accumulated data (average power for the window)
                 dt = self._convert_to_eet(current_window_start)
                 processed_data.append((current_window_start, accumulated_power, dt))
-                
+
                 # Start a new window, aligning its start to the window boundary
                 current_window_start = milliseconds - (milliseconds % window_size_ms)
                 accumulated_power = power
             else:
                 accumulated_power += power
-        
+
         # Add the final point after the loop
         if current_window_start is not None:
             dt = self._convert_to_eet(current_window_start)
             processed_data.append((current_window_start, accumulated_power, dt))
-        
+
         # Convert processed data to DataFrame
         result_df = pd.DataFrame(processed_data, columns=['timestamp_ms', 'power', 'datetime'])
-        
+
         return result_df
 
 
