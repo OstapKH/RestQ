@@ -1,0 +1,229 @@
+all:
+  vars:
+    # ====================================
+    # Deployment Mode Configuration
+    # ====================================
+    # Deployment modes: 
+    # - grid5000: Auto-allocate nodes on Grid5000
+    # - manual: Use manually specified nodes
+    # - localhost: Run everything on current laptop
+    deployment_mode: localhost  # Options: grid5000, manual, localhost
+    
+    # ====================================
+    # Grid5000 Configuration (for grid5000 mode)
+    # ====================================
+    grid_site: lille
+    grid_time: '02:00:00'
+    scaphandre_timestep_s: 1 # Timestep in seconds for power monitoring
+    ansible_ssh_private_key_file_g5k: ~/.ssh/grid5000_key
+    
+    # ====================================
+    # Manual Node Configuration (for manual mode)
+    # ====================================
+    # Define your own nodes when deployment_mode: manual
+    manual_nodes:
+      node1_host: "chifflot-4.lille.grid5000.fr"  # Database Server
+      node2_host: "chifflot-5.lille.grid5000.fr"  # API Server  
+      node3_host: "chiclet-5.lille.grid5000.fr"   # Benchmark Client
+      ssh_user: "root"          # SSH username for manual nodes
+      ssh_key: "~/.ssh/grid5000_key"  # SSH private key for manual nodes
+    
+    # ====================================
+    # Localhost Configuration (for localhost mode)
+    # ====================================
+    # Ports for localhost deployment
+    localhost_ports:
+      postgres_port: 5432
+      api_port: 8086
+      mongodb_port: 27017
+    
+    # ====================================
+    # Repository Configuration
+    # ====================================
+    # GitHub repository URL for RestQFramework
+    github_repo_url: "https://github.com/OstapKH/RestQ.git"
+    project_directory: "/home/spirals/phd/experiments/RestQ"
+    
+    # ====================================
+    # Database Dump Configuration
+    # ====================================
+    # Choose between using pre-made dumps or benchbase fulfillment
+    # Options: dumps, benchbase, huggingface
+    database_source: huggingface  # Use 'huggingface' to download from Hugging Face, 'dumps' for local, 'benchbase' for fulfillment.
+    
+    # Configuration for Hugging Face
+    huggingface_repo: "OstapK/tpch_sc_f_1"
+
+    # Dump file naming convention: {benchmark_type}_sc_f_{scale_factor}.zip
+    # Examples: tpch_sc_f_1.zip, tpcc_sc_f_1.zip, tpch_sc_f_10.zip
+    dumps_directory: "{{ project_directory }}/sql_dumps/postgresql"
+    
+    # ====================================
+    # Benchmark Configuration 
+    # ====================================
+    # Benchmark Type: TPCC (transaction processing) or TPCH (decision support)
+    # Options: TPCC, TPCH
+    benchmark_type: TPCH
+    
+    # Scale Factor: 
+    # - For TPCC: number of warehouses (must be integer like 1.0, 5.0)
+    # - For TPCH: data size multiplier (0.01, 0.1, 1.0, 10.0)  
+    scale_factor: "1.0"
+    
+    # ====================================
+    # PostgreSQL Configuration
+    # ====================================
+    # PostgreSQL server configuration parameters
+    postgresql_config:
+      # Memory PostgreSQL uses for caching data (shared memory)
+      # Recommended: 25% of system RAM for dedicated database servers
+      shared_buffers: "128MB"
+      
+      # Memory for internal operations like sorting or hashing per operation
+      # Each operation can use this much memory
+      work_mem: "4MB"
+      
+      # Memory for maintenance tasks like VACUUM or CREATE INDEX
+      # Should be larger than work_mem for maintenance operations
+      maintenance_work_mem: "64MB"
+      
+      # Maximum stack depth for each server process
+      # Default is 2MB, increase if you get stack depth errors
+      max_stack_depth: "2MB"
+      
+      # Maximum number of concurrent connections
+      # Should match or exceed Hikari maximum_pool_size
+      max_connections: 100
+    
+    # ====================================
+    # Hikari Connection Pool Configuration
+    # ====================================
+    # HikariCP connection pool settings for database connections
+    hikari_config:
+      # Auto-commit behavior for connections
+      auto_commit: true
+      
+      # Connection timeout in milliseconds (time to wait for a connection from the pool)
+      connection_timeout: 30000
+      
+      # Idle timeout in milliseconds (how long a connection can sit idle in the pool)
+      idle_timeout: 600000
+      
+      # Keepalive time in milliseconds (how often to test idle connections)
+      keepalive_time: 30000
+      
+      # Maximum lifetime of a connection in milliseconds
+      max_lifetime: 1800000
+      
+      # Maximum number of connections in the pool
+      maximum_pool_size: 100
+      
+      # Minimum number of idle connections maintained in the pool
+      minimum_idle: 5
+      
+      # Timeout for initialization failures in milliseconds
+      initialization_fail_timeout: 1
+      
+      # Whether to isolate internal queries (prevents connection leaks)
+      isolate_internal_queries: false
+      
+      # Whether to allow pool suspension
+      allow_pool_suspension: false
+      
+      # Whether connections are read-only
+      read_only: false
+      
+      # Whether to register MBeans for monitoring
+      register_mbeans: false
+      
+      # Validation timeout in milliseconds (time to wait for validation query)
+      validation_timeout: 5000
+    
+    # ====================================
+    # Environment Variables for Application
+    # ====================================
+    # Environment variables that will be set for the Spring Boot application
+    app_environment_vars:
+      # Hikari Connection Pool Environment Variables
+      HIKARI_AUTO_COMMIT: "{{ hikari_config.auto_commit | lower | string }}"
+      HIKARI_CONNECTION_TIMEOUT: "{{ hikari_config.connection_timeout | string }}"
+      HIKARI_IDLE_TIMEOUT: "{{ hikari_config.idle_timeout | string }}"
+      HIKARI_KEEPALIVE_TIME: "{{ hikari_config.keepalive_time | string }}"
+      HIKARI_MAX_LIFETIME: "{{ hikari_config.max_lifetime | string }}"
+      HIKARI_MAXIMUM_POOL_SIZE: "{{ hikari_config.maximum_pool_size | string }}"
+      HIKARI_MINIMUM_IDLE: "{{ hikari_config.minimum_idle | string }}"
+      HIKARI_INITIALIZATION_FAIL_TIMEOUT: "{{ hikari_config.initialization_fail_timeout | string }}"
+      HIKARI_ISOLATE_INTERNAL_QUERIES: "{{ hikari_config.isolate_internal_queries | lower | string }}"
+      HIKARI_ALLOW_POOL_SUSPENSION: "{{ hikari_config.allow_pool_suspension | lower | string }}"
+      HIKARI_READ_ONLY: "{{ hikari_config.read_only | lower | string }}"
+      HIKARI_REGISTER_MBEANS: "{{ hikari_config.register_mbeans | lower | string }}"
+      HIKARI_VALIDATION_TIMEOUT: "{{ hikari_config.validation_timeout | string }}"
+    
+    # ====================================
+    # Experiment Tracking
+    # ====================================
+    # Experiment duration (used for grid reservation time)
+    experiment_duration: '02:00:00'
+    
+    # Use a static timestamp that will be consistent across all nodes
+    # You can modify this for each experiment run
+    timestamp: "{{ ansible_date_time.iso8601 }}"
+
+    # Set connection variables based on deployment mode
+    ansible_user: >-
+      {%- if deployment_mode == 'grid5000' -%}
+      root
+      {%- elif deployment_mode == 'manual' -%}
+      {{ manual_nodes.ssh_user }}
+      {%- elif deployment_mode == 'localhost' -%}
+      {{ lookup('env', 'USER') }}
+      {%- endif -%}
+    ansible_ssh_private_key_file: >-
+      {%- if deployment_mode == 'grid5000' -%}
+      {{ ansible_ssh_private_key_file_g5k }}
+      {%- elif deployment_mode == 'manual' -%}
+      {{ manual_nodes.ssh_key }}
+      {%- endif -%}
+    ansible_connection: >-
+      {%- if deployment_mode == 'localhost' -%}
+      local
+      {%- else -%}
+      ssh
+      {%- endif -%}
+
+  hosts:
+    # Grid5000 frontend (only used in grid5000 mode)
+    grid5000:
+      ansible_host: "frontend.{{ grid_site }}.grid5000.fr"
+      ansible_user: oskilbaso
+      
+    # Dynamic node configuration based on deployment_mode
+    node1:
+      ansible_host: >-
+        {%- if deployment_mode == 'grid5000' -%}
+        {{ hostvars['grid5000']['node1'] }}
+        {%- elif deployment_mode == 'manual' -%}
+        {{ manual_nodes.node1_host }}
+        {%- elif deployment_mode == 'localhost' -%}
+        localhost
+        {%- endif -%}
+        
+    node2:
+      ansible_host: >-
+        {%- if deployment_mode == 'grid5000' -%}
+        {{ hostvars['grid5000']['node2'] }}
+        {%- elif deployment_mode == 'manual' -%}
+        {{ manual_nodes.node2_host }}
+        {%- elif deployment_mode == 'localhost' -%}
+        localhost
+        {%- endif -%}
+        
+    node3:
+      ansible_host: >-
+        {%- if deployment_mode == 'grid5000' -%}
+        {{ hostvars['grid5000']['node3'] }}
+        {%- elif deployment_mode == 'manual' -%}
+        {{ manual_nodes.node3_host }}
+        {%- elif deployment_mode == 'localhost' -%}
+        localhost
+        {%- endif -%} 
