@@ -232,27 +232,27 @@
     #   command: apt-get update
     #   changed_when: false
 
-    - name: Install wget, ca-certificates, and Docker dependencies
-      apt:
-        name:
-          - wget
-          - ca-certificates
-          - apt-transport-https
-          - gnupg-agent
-          - software-properties-common
-        state: present
+    # - name: Install wget, ca-certificates, and Docker dependencies
+    #   apt:
+    #     name:
+    #       - wget
+    #       - ca-certificates
+    #       - apt-transport-https
+    #       - gnupg-agent
+    #       - software-properties-common
+    #     state: present
 
-    - name: Update apt cache
-      apt:
-        update_cache: yes
+    # - name: Update apt cache
+    #   apt:
+    #     update_cache: yes
 
     - name: Install Docker, Docker Compose, and PostgreSQL client
       apt:
         name:
           - docker.io
-          - docker compose
-          - postgresql-client
-          - unzip
+          # - docker compose
+          # - postgresql-client
+          # - unzip
         state: present
 
     - name: Ensure Docker service is running
@@ -627,16 +627,16 @@
     db_user: admin
     db_password: password
   tasks:
-    # - name: Download Java 23
-    #   get_url:
-    #     url: https://download.oracle.com/java/23/archive/jdk-23_linux-x64_bin.deb
-    #     dest: /root/jdk-23_linux-x64_bin.deb
-    #     register: java_download
+    - name: Download Java 23
+      get_url:
+        url: https://download.oracle.com/java/23/archive/jdk-23_linux-x64_bin.deb
+        dest: /root/jdk-23_linux-x64_bin.deb
+      register: java_download
 
-    # - name: Install Java 23
-    #   apt:
-    #     deb: /root/jdk-23_linux-x64_bin.deb
-    #     register: java_install
+    - name: Install Java 23
+      apt:
+        deb: /root/jdk-23_linux-x64_bin.deb
+      register: java_install
 
     # - name: Install wget and ca-certificates
     #   apt:
@@ -963,16 +963,16 @@
   vars:
     api_port: 8086
   tasks:
-    # - name: Download Java 23
-    #   get_url:
-    #     url: https://download.oracle.com/java/23/archive/jdk-23_linux-x64_bin.deb
-    #     dest: /root/jdk-23_linux-x64_bin.deb
-    #     register: java_download
+    - name: Download Java 23
+      get_url:
+        url: https://download.oracle.com/java/23/archive/jdk-23_linux-x64_bin.deb
+        dest: /root/jdk-23_linux-x64_bin.deb
+      register: java_download
 
-    # - name: Install Java 23
-    #   apt:
-    #     deb: /root/jdk-23_linux-x64_bin.deb
-    #     register: java_install
+    - name: Install Java 23
+      apt:
+        deb: /root/jdk-23_linux-x64_bin.deb
+      register: java_install
 
     # - name: Install wget and ca-certificates
     #   apt:
