@@ -19,7 +19,14 @@
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
-                <version>3.5.3</version>
+                <version>4.0.2</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.junit</groupId>
+                <artifactId>junit-bom</artifactId>
+                <version>6.0.1</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -34,11 +41,11 @@
             <version>1.0-SNAPSHOT</version>
         </dependency>
 
-        <!-- Testing Framework -->
+        <!-- JUnit 6.0.1 (for when tests are added) -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-api</artifactId>
-            <version>5.10.2</version>
+            <artifactId>junit-jupiter</artifactId>
+            <version>6.0.1</version>
             <scope>test</scope>
         </dependency>
 
@@ -56,11 +63,10 @@
             <version>4.0.5</version>
         </dependency>
 
-        <!-- PostgreSQL Database Driver -->
+        <!-- PostgreSQL Database Driver (version managed by Spring Boot BOM) -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <version>42.7.7</version>
             <scope>runtime</scope>
         </dependency>
 
@@ -78,11 +84,10 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- Jackson for JSON Processing -->
+        <!-- Jackson for JSON Processing (version managed by Spring Boot BOM) -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>2.19.1</version>
         </dependency>
 
         <!-- HTTP Client -->
@@ -173,7 +178,7 @@
                     <plugin>
                         <groupId>org.springframework.boot</groupId>
                         <artifactId>spring-boot-maven-plugin</artifactId>
-                        <version>3.5.3</version>
+                        <version>4.0.2</version>
                         <executions>
                             <execution>
                                 <goals>
@@ -218,7 +223,7 @@
                     <plugin>
                         <groupId>org.springframework.boot</groupId>
                         <artifactId>spring-boot-maven-plugin</artifactId>
-                        <version>3.5.3</version>
+                        <version>4.0.2</version>
                         <executions>
                             <execution>
                                 <goals>
@@ -248,7 +253,7 @@
                     <plugin>
                         <groupId>org.springframework.boot</groupId>
                         <artifactId>spring-boot-maven-plugin</artifactId>
-                        <version>3.5.3</version>
+                        <version>4.0.2</version>
                         <executions>
                             <execution>
                                 <goals>

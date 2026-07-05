@@ -2,11 +2,11 @@ package com.restq;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration;
+import org.springframework.boot.data.jpa.autoconfigure.DataJpaRepositoriesAutoConfiguration;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.FilterType;
 
-@SpringBootApplication(exclude = {JpaRepositoriesAutoConfiguration.class})
+@SpringBootApplication(exclude = {DataJpaRepositoriesAutoConfiguration.class})
 @ComponentScan(
     basePackages = "com.restq",
     excludeFilters = @ComponentScan.Filter(
