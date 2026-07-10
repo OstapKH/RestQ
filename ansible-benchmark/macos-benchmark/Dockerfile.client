@@ -1,0 +1,18 @@
+FROM eclipse-temurin:25-jre
+
+ARG JAR_FILE=target/api-http-1.0-SNAPSHOT-jar-with-dependencies.jar
+COPY ${JAR_FILE} /benchmark.jar
+
+# Overridden at `container run` time; defaults match ApiBenchmark's fallbacks.
+ENV BENCHMARK_BASE_URL=http://localhost:8086/api/reports
+ENV BENCHMARK_TYPE=TPCH
+
+# ApiBenchmark writes benchmark_results_*.json to the working directory;
+# mount a host directory here to collect them.
+WORKDIR /results
+
+# CMD (not ENTRYPOINT) so the orchestrator can start the container idle
+# (`container run ... sleep infinity`) and launch the benchmark later with
+# `container exec` — the power collector needs the container's VM process to
+# exist before measurement starts.
+CMD ["java", "-jar", "/benchmark.jar"]

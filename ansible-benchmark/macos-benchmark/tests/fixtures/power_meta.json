@@ -1,0 +1,21 @@
+{
+  "started": "2026-07-05T12:19:20.000Z",
+  "interval_ms": 1000,
+  "roles": {
+    "db": {
+      "container": "restq-db",
+      "pid": 69500,
+      "target": "postgres"
+    },
+    "api": {
+      "container": "restq-api",
+      "pid": 6956,
+      "target": "spring-api"
+    },
+    "client": {
+      "container": "restq-client",
+      "pid": 0,
+      "target": null
+    }
+  }
+}

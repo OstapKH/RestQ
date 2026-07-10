@@ -251,7 +251,7 @@ mvn exec:java -Dexec.mainClass="com.restq.InitDB" \
 ```bash
 cd visualisation
 source venv/bin/activate
-python visualizer_containers.py
+python visualizer.py
 ```
 
 ## Next Steps

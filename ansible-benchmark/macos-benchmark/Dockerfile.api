@@ -1,0 +1,9 @@
+# API server image for the macOS measurement mode.
+FROM eclipse-temurin:25-jre
+
+ARG JAR_FILE=target/api-http-1.0-SNAPSHOT-tpch.jar
+COPY ${JAR_FILE} /app.jar
+
+EXPOSE 8086
+
+ENTRYPOINT ["java", "-jar", "/app.jar"]

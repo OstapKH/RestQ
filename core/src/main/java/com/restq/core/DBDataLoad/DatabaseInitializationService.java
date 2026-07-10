@@ -8,6 +8,7 @@ import com.oltpbenchmark.benchmarks.tpch.TPCHBenchmark;
 import com.oltpbenchmark.benchmarks.tpch.TPCHLoader;
 import com.oltpbenchmark.types.DatabaseType;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.sql.Connection;
@@ -21,9 +22,21 @@ import java.util.List;
 public class DatabaseInitializationService {
 
     /**
-     * Initialize TPCC database with the specified configuration
+     * Default false: the schema is exactly what BenchBase's per-engine DDL
+     * provides, unmodified. Set benchmark.index-parity=true for cross-engine
+     * comparisons: BenchBase's DDL files disagree (ddl-postgres.sql creates
+     * 15 secondary indexes, ddl-mysql.sql none beyond PK/FK-implied), so
+     * without parity the engines run different physical schemas — measured
+     * at 2x on TPC-H Q4. Either way, record the setting with the results.
      */
-    public void initializeTPCCDatabase(String dbUrl, String username, String password, 
+    @Value("${benchmark.index-parity:false}")
+    private boolean indexParity;
+
+    /**
+     * Initializes the TPC-C database: creates the schema via BenchBase and
+     * loads the data. Returns early when the database is already populated.
+     */
+    public void initializeTPCCDatabase(String dbUrl, String username, String password,
                                      double scaleFactor, int batchSize, int terminals) throws Exception {
         log.info("Starting TPCC database initialization...");
         log.info("Database: {}", dbUrl);
@@ -38,22 +51,18 @@ public class DatabaseInitializationService {
             WorkloadConfiguration workConf = createWorkloadConfiguration(
                 dbUrl, username, password, scaleFactor, batchSize, terminals);
 
-            // Create and configure TPCC benchmark
             TPCCBenchmark benchmark = new TPCCBenchmark(workConf);
-            
-            // Create database schema
+
             log.info("Creating TPCC database schema...");
             benchmark.createDatabase();
-            
-            // Refresh catalog
+
             log.info("Refreshing TPCC catalog...");
             benchmark.refreshCatalog();
-            
-            // Load data
+
             log.info("Loading TPCC data...");
             TPCCLoader loader = new TPCCLoader(benchmark);
             List<LoaderThread> loaderThreads = loader.createLoaderThreads();
-            
+
             for (LoaderThread thread : loaderThreads) {
                 thread.run();
             }
@@ -68,9 +77,11 @@ public class DatabaseInitializationService {
     }
 
     /**
-     * Initialize TPC-H database with the specified configuration
+     * Initializes the TPC-H database: creates the schema via BenchBase,
+     * loads the data, and applies the optional index parity set. Returns
+     * early when the database is already populated.
      */
-    public void initializeTPCHDatabase(String dbUrl, String username, String password, 
+    public void initializeTPCHDatabase(String dbUrl, String username, String password,
                                      double scaleFactor, int batchSize, int terminals) throws Exception {
         log.info("Starting TPC-H database initialization...");
         log.info("Database: {}", dbUrl);
@@ -85,36 +96,74 @@ public class DatabaseInitializationService {
             WorkloadConfiguration workConf = createWorkloadConfiguration(
                 dbUrl, username, password, scaleFactor, batchSize, terminals);
 
-            // Create and configure TPC-H benchmark
             TPCHBenchmark benchmark = new TPCHBenchmark(workConf);
-            
-            // Create database schema
+
             log.info("Creating TPC-H database schema...");
             benchmark.createDatabase();
-            
-            // Refresh catalog
+
             log.info("Refreshing TPC-H catalog...");
             benchmark.refreshCatalog();
-            
-            // Load data
+
             log.info("Loading TPC-H data...");
             TPCHLoader loader = new TPCHLoader(benchmark);
             List<LoaderThread> loaderThreads = loader.createLoaderThreads();
-            
+
             for (LoaderThread thread : loaderThreads) {
                 thread.run();
             }
             
+            ensureTPCHIndexParity(conn, determineDatabaseType(dbUrl));
+
             log.info("TPC-H database initialization completed successfully");
             printTPCHStatistics(conn);
-            
+
         } catch (Exception e) {
             log.error("Failed to initialize TPC-H database", e);
             throw e;
         }
     }
 
-    private WorkloadConfiguration createWorkloadConfiguration(String dbUrl, String username, 
+    /**
+     * Opt-in via benchmark.index-parity=true (see the field docs): adds the
+     * secondary indexes MySQL is missing relative to BenchBase's postgres
+     * DDL; engines whose DDL is already index-complete are untouched.
+     * MySQL error 1061 (duplicate key name) is tolerated — it means the
+     * index already exists.
+     */
+    private void ensureTPCHIndexParity(Connection conn, DatabaseType dbType) {
+        if (!indexParity) {
+            log.info("Index parity disabled (benchmark.index-parity=false): "
+                    + "schema is exactly BenchBase's per-engine DDL");
+            return;
+        }
+        if (dbType != DatabaseType.MYSQL) {
+            return;
+        }
+        String[] indexes = {
+            "CREATE INDEX o_od ON orders (o_orderdate)",
+            "CREATE INDEX l_cd ON lineitem (l_commitdate)",
+            "CREATE INDEX l_sd ON lineitem (l_shipdate)",
+            "CREATE INDEX l_rd ON lineitem (l_receiptdate)",
+            "CREATE INDEX l_pk_sk ON lineitem (l_partkey, l_suppkey)",
+            "CREATE INDEX l_sk_pk ON lineitem (l_suppkey, l_partkey)",
+        };
+        log.info("Creating TPC-H index parity set for {} ({} indexes)...",
+                dbType, indexes.length);
+        for (String ddl : indexes) {
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute(ddl);
+            } catch (java.sql.SQLException e) {
+                if (e.getErrorCode() == 1061) {
+                    log.info("Index already exists, skipping: {}", ddl);
+                } else {
+                    throw new RuntimeException("Index parity DDL failed: " + ddl, e);
+                }
+            }
+        }
+    }
+
+    /** Builds the BenchBase workload configuration for the given connection settings. */
+    private WorkloadConfiguration createWorkloadConfiguration(String dbUrl, String username,
                                                             String password, double scaleFactor, 
                                                             int batchSize, int terminals) {
         WorkloadConfiguration workConf = new WorkloadConfiguration();
@@ -129,6 +178,7 @@ public class DatabaseInitializationService {
         return workConf;
     }
 
+    /** Returns true when the WAREHOUSE table exists and contains rows. */
     private boolean isTPCCDatabasePopulated(Connection conn) {
         try (Statement stmt = conn.createStatement()) {
             ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM WAREHOUSE");
@@ -139,6 +189,7 @@ public class DatabaseInitializationService {
         }
     }
 
+    /** Returns true when the CUSTOMER table exists and contains rows. */
     private boolean isTPCHDatabasePopulated(Connection conn) {
         try (Statement stmt = conn.createStatement()) {
             ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM CUSTOMER");
@@ -149,6 +200,7 @@ public class DatabaseInitializationService {
         }
     }
 
+    /** Logs the row count of every TPC-C table; failures only produce warnings. */
     private void printTPCCStatistics(Connection conn) {
         try (Statement stmt = conn.createStatement()) {
             log.info("=== TPCC Database Statistics ===");
@@ -169,6 +221,7 @@ public class DatabaseInitializationService {
         }
     }
 
+    /** Logs the row count of every TPC-H table; failures only produce warnings. */
     private void printTPCHStatistics(Connection conn) {
         try (Statement stmt = conn.createStatement()) {
             log.info("=== TPC-H Database Statistics ===");
@@ -189,6 +242,7 @@ public class DatabaseInitializationService {
         }
     }
 
+    /** Derives the BenchBase database type from the JDBC URL; throws on unsupported engines. */
     private DatabaseType determineDatabaseType(String jdbcUrl) {
         jdbcUrl = jdbcUrl.toLowerCase();
         if (jdbcUrl.contains("postgresql")) {

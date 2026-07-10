@@ -65,3 +65,5 @@ Desktop.ini
 sql_dumps/
 benchbase/data/
 upload_to_huggingface.py
+.superpowers/
+ansible-benchmark/macos-benchmark/*.deb

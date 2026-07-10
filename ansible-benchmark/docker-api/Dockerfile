@@ -1,4 +1,5 @@
-FROM openjdk:23-jdk-slim
+
+FROM eclipse-temurin:25-jre
 
 ARG JAR_FILE=target/api-http-1.0-SNAPSHOT.jar
 COPY ${JAR_FILE} app.jar

@@ -1,0 +1,13 @@
+# PostgreSQL image with pg_stat_kcache for per-query CPU-time (and therefore
+# energy) attribution. pg_stat_statements ships with postgres itself; kcache
+# adds getrusage-based user/system CPU time per query.
+#
+# Containers have no DNS under Apple `container`, so apt-get cannot run at
+# build time; the playbook downloads the PGDG .deb into the build context
+# (checksum-pinned) and we install it offline. postgresql-contrib-17, its
+# only dependency beyond libc, is already in the base image.
+FROM postgres:17
+
+COPY postgresql-17-pg-stat-kcache.deb /tmp/
+RUN dpkg -i /tmp/postgresql-17-pg-stat-kcache.deb \
+    && rm /tmp/postgresql-17-pg-stat-kcache.deb

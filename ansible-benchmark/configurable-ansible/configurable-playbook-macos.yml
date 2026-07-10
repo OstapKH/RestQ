@@ -1,0 +1,465 @@
+# =====================================================================
+# RestQ benchmark on macOS with Apple `container` + powermetrics
+# =====================================================================
+# Runs the full stack (Postgres, Spring API, benchmark client) in three
+# containers — each its own lightweight VM — on this Mac, while measuring
+# energy with powermetrics. Per-container power is attributed by each VM
+# process's share of system CPU time; whole-machine power is recorded as
+# ground truth.
+#
+# Usage:
+#   ansible-playbook -i configurable-inventory.yml configurable-playbook-macos.yml \
+#       -e deployment_mode=macos
+#
+# Requires (see macos_config in the inventory): Apple silicon, macOS 26+,
+# the `container` CLI, and passwordless sudo for powermetrics + its pkill.
+# Design: docs/superpowers/specs/2026-07-05-macos-power-measurement-design.md
+# =====================================================================
+
+- name: RestQ macOS container benchmark with powermetrics energy measurement
+  hosts: node1
+  gather_facts: true
+  vars:
+    # dirname twice (not "../..") — `container build` rejects unnormalized paths
+    project_root: "{{ playbook_dir | dirname | dirname }}"
+    workdir: "/tmp/restq_macos_{{ benchmark_type | lower }}"
+    container_cli: "{{ macos_config.container_cli }}"
+    db_name: "{{ 'tpchdb' if benchmark_type == 'TPCH' else 'tpccdb' }}"
+    db_user: admin
+    db_password: password
+    boot_jar_classifier: "{{ 'tpch' if benchmark_type == 'TPCH' else 'tpcc' }}"
+    boot_jar: "{{ project_root }}/api-http/target/api-http-1.0-SNAPSHOT-{{ boot_jar_classifier }}.jar"
+    client_jar: "{{ project_root }}/api-http/target/api-http-1.0-SNAPSHOT-jar-with-dependencies.jar"
+    collector: "{{ project_root }}/ansible-benchmark/macos-benchmark/power_collector.py"
+    api_path: "{{ 'tpcc' if benchmark_type == 'TPCC' else 'reports' }}"
+    # expanduser: the cp commands quote this path (it may contain spaces), and
+    # a quoted "~" does not expand in the shell
+    results_dir: "{{ macos_config.results_directory | expanduser }}/experiment_{{ benchmark_type }}_{{ timestamp }}"
+    scale_factor_filename_part: "{{ scale_factor | regex_replace('^(\\d+)(\\.0+)?$', '\\1') | replace('.', '_') }}"
+    dump_filename: "{{ benchmark_type | lower }}_sc_f_{{ scale_factor_filename_part }}.zip"
+    c_db: "{{ macos_config.containers.db }}"
+    c_api: "{{ macos_config.containers.api }}"
+    c_client: "{{ macos_config.containers.client }}"
+    engine: "{{ db_engine_config[db_engine] }}"
+
+  tasks:
+    - name: Run benchmark with guaranteed cleanup
+      block:
+
+        # ====================================
+        # 1. Preflight
+        # ====================================
+        - name: Assert Apple silicon Mac on macOS 26+
+          assert:
+            that:
+              - ansible_system == 'Darwin'
+              - ansible_architecture == 'arm64'
+              - ansible_distribution_version is version('26', '>=')
+            fail_msg: >-
+              The macos deployment mode needs an Apple silicon Mac running
+              macOS 26 or later (found {{ ansible_system }}
+              {{ ansible_distribution_version }} on {{ ansible_architecture }}).
+
+        - name: Check container CLI is installed
+          stat:
+            path: "{{ container_cli }}"
+          register: cli_stat
+
+        - name: Fail with install instructions when container CLI is missing
+          fail:
+            msg: >-
+              Apple `container` CLI not found at {{ container_cli }}.
+              Install the signed pkg from
+              https://github.com/apple/container/releases and run
+              `container system start`.
+          when: not cli_stat.stat.exists
+
+        - name: Ensure container system service is running
+          command: "{{ container_cli }} system start"
+          register: system_start
+          changed_when: "'starting' in (system_start.stdout | lower)"
+
+        - name: Verify passwordless sudo for powermetrics
+          command: sudo -n /usr/bin/powermetrics --samplers cpu_power -i 100 -n 1 -o /dev/null
+          register: pm_check
+          failed_when: pm_check.rc != 0
+          changed_when: false
+
+        - name: Verify passwordless sudo for powermetrics stop (pkill)
+          command: sudo -n -l /usr/bin/pkill -INT -x powermetrics
+          register: pkill_check
+          failed_when: pkill_check.rc != 0
+          changed_when: false
+
+        - name: Check benchmark jars exist
+          stat:
+            path: "{{ item }}"
+          loop: ["{{ boot_jar }}", "{{ client_jar }}",
+                 "{{ project_root }}/core/target/core-1.0-SNAPSHOT-exec.jar"]
+          register: jar_stats
+
+        - name: Build core and api-http when jars are missing
+          shell: |
+            set -e
+            cd "{{ project_root }}/core"
+            mvn -q clean install -P executable-jar -DskipTests
+            cd "{{ project_root }}/api-http"
+            mvn -q clean install -P springboot-{{ boot_jar_classifier }} -DskipTests
+          when: jar_stats.results | map(attribute='stat.exists') | select('equalto', false) | list | length > 0
+
+        - name: Create working directory
+          file:
+            path: "{{ item }}"
+            state: directory
+            mode: '0755'
+          loop:
+            - "{{ workdir }}"
+            - "{{ workdir }}/client_results"
+
+        # client_results persists across runs; a leftover results file would
+        # make the combine step glob pick the wrong (stale) benchmark JSON
+        - name: Remove stale benchmark results from previous runs
+          shell: rm -f {{ workdir }}/client_results/benchmark_results_*.json
+          changed_when: true
+
+        # ====================================
+        # 2. Images
+        # ====================================
+        - name: Assert data source is compatible with the database engine
+          assert:
+            that:
+              - db_engine == 'postgres' or database_source == 'benchbase'
+            fail_msg: >-
+              database_source '{{ database_source }}' uses psql-format dumps,
+              which only the postgres engine can restore. Use
+              database_source: benchbase for {{ db_engine }}.
+
+        - name: Pull base images (arm64 only — default pulls every architecture)
+          command: "{{ container_cli }} image pull --platform linux/arm64 {{ item }}"
+          loop:
+            - "{{ engine.base_image }}"
+            - eclipse-temurin:25-jre
+          changed_when: false
+
+        - name: Build API and client images
+          command: >-
+            {{ container_cli }} build -t {{ item.tag }}
+            -f "{{ project_root }}/ansible-benchmark/macos-benchmark/{{ item.dockerfile }}"
+            --build-arg JAR_FILE=target/{{ item.jar }}
+            "{{ project_root }}/api-http"
+          loop:
+            - { tag: restq-api,    dockerfile: Dockerfile.api,
+                jar: "api-http-1.0-SNAPSHOT-{{ boot_jar_classifier }}.jar" }
+            - { tag: restq-client, dockerfile: Dockerfile.client,
+                jar: "api-http-1.0-SNAPSHOT-jar-with-dependencies.jar" }
+          changed_when: true
+
+        - name: Download pg_stat_kcache package (containers lack DNS at build time)
+          get_url:
+            url: "http://apt.postgresql.org/pub/repos/apt/pool/main/p/pg-stat-kcache/postgresql-17-pg-stat-kcache_2.3.2-1.pgdg13+1_arm64.deb"
+            dest: "{{ project_root }}/ansible-benchmark/macos-benchmark/postgresql-17-pg-stat-kcache.deb"
+            checksum: "sha256:d09e46e916628dd8e0958bb61b4dc0f9df09bfcabcfd92bcea90f88a0b2baa74"
+            mode: '0644'
+          retries: 3
+          delay: 5
+          when: db_engine == 'postgres'
+
+        - name: Build DB image (postgres + pg_stat_kcache for per-query energy)
+          command: >-
+            {{ container_cli }} build -t restq-db
+            -f "{{ project_root }}/ansible-benchmark/macos-benchmark/Dockerfile.db"
+            "{{ project_root }}/ansible-benchmark/macos-benchmark"
+          changed_when: true
+          when: db_engine == 'postgres'
+
+        - name: Remove leftover containers from previous runs
+          command: "{{ container_cli }} rm -f {{ c_db.name }} {{ c_api.name }} {{ c_client.name }}"
+          failed_when: false
+          changed_when: false
+
+        # ====================================
+        # 3. Database up + data load
+        # ====================================
+        - name: Start database container ({{ db_engine }})
+          command: >-
+            {{ container_cli }} run -d --name {{ c_db.name }}
+            --cpus {{ c_db.cpus }} --memory {{ c_db.memory }}
+            {{ engine.run_env }}
+            {{ engine.image }}
+            {{ engine.server_args }}
+
+        - name: Wait for database to accept connections
+          command: >-
+            {{ container_cli }} exec {{ c_db.name }} {{ engine.readiness }}
+          register: db_ready
+          until: db_ready.rc == 0
+          retries: 30
+          delay: 5
+          changed_when: false
+
+        - name: Read database container IP
+          shell: >-
+            {{ container_cli }} inspect {{ c_db.name }} |
+            python3 -c "import json,sys; print(json.load(sys.stdin)[0]['status']['networks'][0]['ipv4Address'].split('/')[0])"
+          register: db_ip_out
+          changed_when: false
+
+        - name: Set database IP fact
+          set_fact:
+            db_ip: "{{ db_ip_out.stdout | trim }}"
+
+        - name: Download SQL dump from Hugging Face
+          get_url:
+            url: "https://huggingface.co/datasets/{{ huggingface_repo }}/resolve/main/sql_dumps/postgresql/{{ dump_filename }}?download=true"
+            dest: "{{ workdir }}/{{ dump_filename }}"
+            mode: '0644'
+          when: database_source == "huggingface"
+          retries: 3
+          delay: 10
+
+        - name: Copy local SQL dump
+          copy:
+            src: "{{ project_root }}/sql_dumps/postgresql/{{ dump_filename }}"
+            dest: "{{ workdir }}/{{ dump_filename }}"
+            mode: '0644'
+          when: database_source == "dumps"
+
+        - name: Extract and restore SQL dump into the database container
+          shell: |
+            set -e
+            rm -rf {{ workdir }}/dump_extract
+            mkdir -p {{ workdir }}/dump_extract
+            unzip -o {{ workdir }}/{{ dump_filename }} -d {{ workdir }}/dump_extract
+            sql_file=$(find {{ workdir }}/dump_extract -name "*.sql" | head -1)
+            [ -n "$sql_file" ] || { echo "no .sql file in dump"; exit 1; }
+            {{ container_cli }} exec -i {{ c_db.name }} psql -U {{ db_user }} -d {{ db_name }} < "$sql_file"
+          when: database_source in ["huggingface", "dumps"]
+
+        # engine-specific SQL lives in db_engine_config (inventory); the
+        # playbook only runs whatever the engine declares
+        - name: Set up per-query statistics ({{ db_engine }})
+          command: "{{ container_cli }} exec {{ c_db.name }} {{ engine.stats_setup }}"
+          when: engine.stats_setup is defined
+
+        - name: Load database with benchbase (InitDB)
+          command: >-
+            java -Duser.timezone=UTC
+            -jar "{{ project_root }}/core/target/core-1.0-SNAPSHOT-exec.jar"
+            --spring.datasource.url=jdbc:{{ engine.jdbc_scheme }}://{{ db_ip }}:{{ engine.port }}/{{ db_name }}
+            --spring.datasource.username={{ db_user }}
+            --spring.datasource.password={{ db_password }}
+            --benchmark.type={{ benchmark_type }}
+            --benchmark.scale-factor={{ scale_factor }}
+            --benchmark.index-parity={{ index_parity | default(false) | lower }}
+          when: database_source == "benchbase"
+
+
+        # Command-line args, not env vars: relaxed binding does not map
+        # BENCHMARK_SCALE_FACTOR to benchmark.scale-factor (the old env form
+        # silently loaded the 1.0 default). UTC: host JVM timezone names can
+        # be unknown to the database container.
+
+        # ====================================
+        # 4. API up
+        # ====================================
+        - name: Start API container
+          command: >-
+            {{ container_cli }} run -d --name {{ c_api.name }}
+            --cpus {{ c_api.cpus }} --memory {{ c_api.memory }}
+            -e SPRING_DATASOURCE_URL=jdbc:{{ engine.jdbc_scheme }}://{{ db_ip }}:{{ engine.port }}/{{ db_name }}
+            -e SPRING_DATASOURCE_USERNAME={{ db_user }}
+            -e SPRING_DATASOURCE_PASSWORD={{ db_password }}
+            -e BENCHMARK_TYPE={{ benchmark_type }}
+            {% for key, value in app_environment_vars.items() %} -e {{ key }}={{ value }}{% endfor %}
+            restq-api
+
+        - name: Read API container IP
+          shell: >-
+            {{ container_cli }} inspect {{ c_api.name }} |
+            python3 -c "import json,sys; print(json.load(sys.stdin)[0]['status']['networks'][0]['ipv4Address'].split('/')[0])"
+          register: api_ip_out
+          changed_when: false
+
+        - name: Set API IP fact
+          set_fact:
+            api_ip: "{{ api_ip_out.stdout | trim }}"
+
+        - name: Wait for API to listen on port 8086 (cold VM + Spring startup)
+          wait_for:
+            host: "{{ api_ip }}"
+            port: 8086
+            delay: 5
+            timeout: 300
+
+        # ====================================
+        # 5. Measure + benchmark
+        # ====================================
+        - name: Check for external parameters file
+          stat:
+            path: "{{ project_root }}/ansible-benchmark/benchmark-config/parameters.xml"
+          register: params_stat
+
+        - name: Start benchmark client container (idle, so its VM exists for discovery)
+          command: >-
+            {{ container_cli }} run -d --name {{ c_client.name }}
+            --cpus {{ c_client.cpus }} --memory {{ c_client.memory }}
+            --volume {{ workdir }}/client_results:/results
+            --volume {{ project_root }}/ansible-benchmark/benchmark-config:/benchmark-config
+            -e BENCHMARK_BASE_URL=http://{{ api_ip }}:8086/api/{{ api_path }}
+            -e BENCHMARK_TYPE={{ benchmark_type }}
+            -e BENCHMARK_CONFIG=/benchmark-config/benchmark-config.xml
+            {% if params_stat.stat.exists %}-e BENCHMARK_PARAMETERS=/benchmark-config/parameters.xml{% endif %}
+            restq-client sleep infinity
+
+        - name: Start power collector
+          shell: |
+            cd {{ workdir }}
+            nohup python3 "{{ collector }}" collect \
+              --db-container {{ c_db.name }} \
+              --api-container {{ c_api.name }} \
+              --client-container {{ c_client.name }} \
+              --interval-ms {{ macos_config.powermetrics_interval_ms }} \
+              --output {{ workdir }}/raw_powermetrics.plist \
+              --meta {{ workdir }}/power_meta.json \
+              --sample-guests \
+              --container-cli {{ container_cli }} \
+              --db-engine {{ db_engine }} \
+              --pg-user {{ db_user }} --pg-db {{ db_name }} \
+              --pg-password {{ db_password }} \
+              > {{ workdir }}/collector.log 2>&1 &
+            echo $! > {{ workdir }}/collector.pid
+
+        - name: Wait for collector to produce metadata (discovery done)
+          wait_for:
+            path: "{{ workdir }}/power_meta.json"
+            timeout: 60
+
+        - name: Reset query statistics so counters start at the benchmark
+          command: "{{ container_cli }} exec {{ c_db.name }} {{ engine.stats_reset }}"
+          when: engine.stats_reset is defined
+
+        - name: Run benchmark client to completion
+          command: >-
+            {{ container_cli }} exec {{ c_client.name }}
+            sh -c "cd /results && java -jar /benchmark.jar > /results/benchmark_client.log 2>&1"
+          register: client_run
+          # generous cap; actual duration is set by benchmark-config.xml
+          async: 21600
+          poll: 30
+
+        - name: Stop power collector (SIGTERM -> sudo pkill -INT powermetrics)
+          shell: |
+            kill -TERM $(cat {{ workdir }}/collector.pid) 2>/dev/null || true
+            for i in $(seq 1 20); do
+              kill -0 $(cat {{ workdir }}/collector.pid) 2>/dev/null || exit 0
+              sleep 1
+            done
+            exit 0
+
+        # ====================================
+        # 6. Post-process + collect results
+        # ====================================
+        - name: Attribute power samples to containers
+          command: >-
+            python3 "{{ collector }}" attribute
+            --raw {{ workdir }}/raw_powermetrics.plist
+            --meta {{ workdir }}/power_meta.json
+            --out-dir {{ workdir }}/power_out
+
+        - name: Read attribution summary
+          slurp:
+            src: "{{ workdir }}/power_out/attribution_summary.json"
+          register: attribution_raw
+
+        - name: Prepare combined-results input directory
+          shell: |
+            rm -rf {{ workdir }}/fixed_json_files
+            mkdir -p {{ workdir }}/fixed_json_files
+            cp {{ workdir }}/client_results/benchmark_results_*.json {{ workdir }}/fixed_json_files/
+            # scaphandre-format energy series: JsonCombiner embeds these as the
+            # db_server_energy / api_server_energy keys the visualizer requires
+            cp {{ workdir }}/power_out/fixed_experiments_summary_dbserver.json {{ workdir }}/fixed_json_files/
+            cp {{ workdir }}/power_out/fixed_experiments_summary_apiserver.json {{ workdir }}/fixed_json_files/
+
+        - name: Create experiment info JSON
+          copy:
+            content: |
+              {
+                "benchmark_type": "{{ benchmark_type }}",
+                "scale_factor": "{{ scale_factor }}",
+                "experiment_duration": "{{ experiment_duration }}",
+                "timestamp": "{{ timestamp }}",
+                "measurement_mode": "powermetrics-macos",
+                "db_container_id": "{{ c_db.name }}",
+                "api_container_id": "{{ c_api.name }}",
+                "attribution": {{ attribution_raw.content | b64decode }}
+              }
+            dest: "{{ workdir }}/fixed_json_files/experiment_info.json"
+            mode: '0644'
+
+        - name: Combine benchmark results (JsonCombiner)
+          shell: |
+            set -e
+            cd "{{ project_root }}/api-http"
+            javac -cp target/api-http-1.0-SNAPSHOT-jar-with-dependencies.jar src/main/java/com/restq/utils/JsonCombiner.java
+            java -cp target/api-http-1.0-SNAPSHOT-jar-with-dependencies.jar:src/main/java com.restq.utils.JsonCombiner \
+              {{ workdir }}/fixed_json_files {{ workdir }}/combined_results.json
+
+        - name: Compute per-query energy (needs run windows from combined results)
+          command: >-
+            python3 "{{ collector }}" queries
+            --pg-samples {{ workdir }}/pg_query_samples.csv
+            --combined {{ workdir }}/combined_results.json
+            --guest-samples {{ workdir }}/guest_samples_db.ndjson
+            --power-dir {{ workdir }}/power_out
+            --out {{ workdir }}/per_query_energy.json
+          when: db_engine in ['postgres', 'mysql']
+
+        - name: Create experiment results directory
+          file:
+            path: "{{ results_dir }}"
+            state: directory
+            mode: '0755'
+
+        - name: Collect experiment artifacts
+          shell: |
+            set -e
+            cp {{ workdir }}/combined_results.json                     "{{ results_dir }}/combined_results.json"
+            # raw client results file (exactly one: scratch is cleaned at run start)
+            cp {{ workdir }}/client_results/benchmark_results_*.json   "{{ results_dir }}/"
+            cp {{ workdir }}/fixed_json_files/experiment_info.json     "{{ results_dir }}/experiment_info.json"
+            cp {{ workdir }}/power_out/mongodump-DB-server.json        "{{ results_dir }}/mongodump-DB-server.json"
+            cp {{ workdir }}/power_out/mongodump-API-server.json       "{{ results_dir }}/mongodump-API-server.json"
+            cp {{ workdir }}/power_out/attribution_summary.json        "{{ results_dir }}/attribution_summary.json"
+            cp {{ workdir }}/client_results/benchmark_client.log       "{{ results_dir }}/benchmark_client.log"
+            cp {{ workdir }}/raw_powermetrics.plist                    "{{ results_dir }}/raw_powermetrics.plist"
+            cp {{ workdir }}/power_meta.json                           "{{ results_dir }}/power_meta.json"
+            cp {{ workdir }}/guest_samples_*.ndjson                    "{{ results_dir }}/"
+            cp {{ workdir }}/system_samples.ndjson                     "{{ results_dir }}/system_samples.ndjson"
+
+        - name: Collect per-query energy artifacts (postgres engine only)
+          shell: |
+            set -e
+            cp {{ workdir }}/per_query_energy.json "{{ results_dir }}/per_query_energy.json"
+            cp {{ workdir }}/pg_query_samples.csv  "{{ results_dir }}/pg_query_samples.csv"
+          when: db_engine in ['postgres', 'mysql']
+
+        - name: Report results location
+          debug:
+            msg: "Experiment complete. Results in {{ results_dir }}"
+
+      # ====================================
+      # 7. Cleanup — always runs
+      # ====================================
+      always:
+        - name: Stop collector if still alive
+          shell: |
+            [ -f {{ workdir }}/collector.pid ] && kill -TERM $(cat {{ workdir }}/collector.pid) 2>/dev/null || true
+            sudo -n /usr/bin/pkill -INT -x powermetrics 2>/dev/null || true
+          failed_when: false
+          changed_when: false
+
+        - name: Stop and remove benchmark containers
+          command: "{{ container_cli }} rm -f {{ c_db.name }} {{ c_api.name }} {{ c_client.name }}"
+          failed_when: false
+          changed_when: false

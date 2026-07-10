@@ -15,28 +15,28 @@ public class Part {
     @Column(name = "P_PARTKEY")
     private Integer partKey;
 
-    @Column(name = "P_NAME", length = 55, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "P_NAME", length = 55, nullable = false, columnDefinition = "char(55)")
     private String name;
 
-    @Column(name = "P_MFGR", length = 25, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "P_MFGR", length = 25, nullable = false, columnDefinition = "char(25)")
     private String manufacturer;
 
-    @Column(name = "P_BRAND", length = 10, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "P_BRAND", length = 10, nullable = false, columnDefinition = "char(10)")
     private String brand;
 
-    @Column(name = "P_TYPE", length = 25, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "P_TYPE", length = 25, nullable = false, columnDefinition = "char(25)")
     private String type;
 
     @Column(name = "P_SIZE", nullable = false)
     private Integer size;
 
-    @Column(name = "P_CONTAINER", length = 10, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "P_CONTAINER", length = 10, nullable = false, columnDefinition = "char(10)")
     private String container;
 
     @Column(name = "P_RETAILPRICE", nullable = false)
     private BigDecimal retailPrice;
 
-    @Column(name = "P_COMMENT", length = 23, columnDefinition = "bpchar")
+    @Column(name = "P_COMMENT", length = 23, columnDefinition = "char(23)")
     private String comment;
 
     public Part() {

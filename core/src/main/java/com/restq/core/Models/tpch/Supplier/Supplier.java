@@ -18,23 +18,23 @@ public class Supplier {
     @Column(name = "S_SUPPKEY")
     private Integer supplierKey;
 
-    @Column(name = "S_NAME", length = 25, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "S_NAME", length = 25, nullable = false, columnDefinition = "char(25)")
     private String name;
 
-    @Column(name = "S_ADDRESS", length = 40, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "S_ADDRESS", length = 40, nullable = false, columnDefinition = "char(40)")
     private String address;
 
     @ManyToOne
     @JoinColumn(name = "S_NATIONKEY", referencedColumnName = "N_NATIONKEY")
     private Nation nation;
 
-    @Column(name = "S_PHONE", length = 15, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "S_PHONE", length = 15, nullable = false, columnDefinition = "char(15)")
     private String phone;
 
     @Column(name = "S_ACCTBAL", nullable = false)
     private BigDecimal accountBalance;
 
-    @Column(name = "S_COMMENT", length = 101, columnDefinition = "bpchar")
+    @Column(name = "S_COMMENT", length = 101, columnDefinition = "char(101)")
     private String comment;
 
     public Supplier() {

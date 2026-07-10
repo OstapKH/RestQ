@@ -23,7 +23,7 @@ public class Order {
     @JoinColumn(name = "O_CUSTKEY", referencedColumnName = "C_CUSTKEY")
     private Customer customer;
 
-    @Column(name = "O_ORDERSTATUS", length = 1, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "O_ORDERSTATUS", length = 1, nullable = false, columnDefinition = "char(1)")
     private String orderStatus;
 
     @Column(name = "O_TOTALPRICE", nullable = false)
@@ -32,16 +32,16 @@ public class Order {
     @Column(name = "O_ORDERDATE", nullable = false)
     private LocalDate orderDate;
 
-    @Column(name = "O_ORDERPRIORITY", length = 15, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "O_ORDERPRIORITY", length = 15, nullable = false, columnDefinition = "char(15)")
     private String orderPriority;
 
-    @Column(name = "O_CLERK", length = 15, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "O_CLERK", length = 15, nullable = false, columnDefinition = "char(15)")
     private String clerk;
 
     @Column(name = "O_SHIPPRIORITY", nullable = false)
     private Integer shipPriority;
 
-    @Column(name = "O_COMMENT", length = 79, columnDefinition = "bpchar")
+    @Column(name = "O_COMMENT", length = 79, columnDefinition = "char(79)")
     private String comment;
 
     public Order() {

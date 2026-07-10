@@ -44,6 +44,8 @@ Get started with RESTQ in just a few steps:
 
 1. **[Install Prerequisites](getting-started/installation.md)** - Set up Java, Docker, and other dependencies
 2. **[Configuration](getting-started/configuration.md)** - Customize benchmarks and monitoring
+3. **[macOS Energy Measurement](user-guide/macos-energy-measurement.md)** - Run benchmarks with energy measurement on an Apple silicon machine
+4. **[Visualizer](user-guide/visualizer.md)** - Analyze results in the browser: timelines, per-request latencies, per-query energy
 
 
 ## Project Status

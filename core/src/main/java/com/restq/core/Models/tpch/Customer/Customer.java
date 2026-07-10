@@ -28,13 +28,13 @@ public class Customer {
     @JoinColumn(name = "C_NATIONKEY", referencedColumnName = "N_NATIONKEY", nullable = false)
     private Nation nation;
 
-    @Column(name = "C_PHONE", length = 15, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "C_PHONE", length = 15, nullable = false, columnDefinition = "char(15)")
     private String phone;
 
     @Column(name = "C_ACCTBAL", nullable = false, columnDefinition = "numeric(15, 2)")
     private BigDecimal accountBalance;
 
-    @Column(name = "C_MKTSEGMENT", length = 10, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "C_MKTSEGMENT", length = 10, nullable = false, columnDefinition = "char(10)")
     private String marketSegment;
 
     @Column(name = "C_COMMENT", length = 117, nullable = false)

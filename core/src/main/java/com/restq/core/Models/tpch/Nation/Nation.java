@@ -22,7 +22,7 @@ public class Nation {
     @Column(name = "N_NATIONKEY", nullable = false)
     private Integer nationKey;
 
-    @Column(name = "N_NAME", length = 25, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "N_NAME", length = 25, nullable = false, columnDefinition = "char(25)")
     private String name;
 
     @ManyToOne

@@ -3,11 +3,13 @@ all:
     # ====================================
     # Deployment Mode Configuration
     # ====================================
-    # Deployment modes: 
+    # Deployment modes:
     # - grid5000: Auto-allocate nodes on Grid5000
     # - manual: Use manually specified nodes
     # - localhost: Run everything on current laptop
-    deployment_mode: grid5000  # Options: grid5000, manual, localhost
+    # - macos: Run containers on this Mac (Apple `container`, powermetrics energy measurement)
+    #          Use with configurable-playbook-macos.yml
+    deployment_mode: grid5000  # Options: grid5000, manual, localhost, macos
     
     # ====================================
     # Grid5000 Configuration (for grid5000 mode)
@@ -36,7 +38,102 @@ all:
       postgres_port: 5432
       api_port: 8086
       mongodb_port: 27017
-    
+
+    # ====================================
+    # macOS Configuration (for macos mode)
+    # ====================================
+    # Requires: Apple silicon, macOS 26+, the `container` CLI
+    # (github.com/apple/container), and passwordless sudo for powermetrics:
+    #   <user> ALL=(root) NOPASSWD: /usr/bin/powermetrics
+    #   <user> ALL=(root) NOPASSWD: /usr/bin/pkill -INT -x powermetrics
+    macos_config:
+      container_cli: /usr/local/bin/container
+      # Sampling interval for powermetrics; if unset, derived from
+      # scaphandre_timestep_s (seconds -> milliseconds).
+      powermetrics_interval_ms: "{{ (scaphandre_timestep_s | int) * 1000 }}"
+      results_directory: "~/Desktop/Results_rest_q_xml_benchmarks"
+      # Per-container resource limits (Apple `container` --cpus / --memory).
+      # Pinning these keeps runs reproducible on shared hardware.
+      containers:
+        db:     { name: "restq-db",     cpus: 2, memory: "4g" }
+        api:    { name: "restq-api",    cpus: 2, memory: "2g" }
+        client: { name: "restq-client", cpus: 2, memory: "2g" }
+
+
+    # ====================================
+    # Database Engine Configuration (macos mode)
+    # ====================================
+    # postgres replicates the historical pipeline exactly: dump restore,
+    # pg_stat_kcache per-query energy. mysql is provided best-effort:
+    # data loading must use database_source: benchbase, and per-query
+    # energy needs MySQL >= 8.0.28 (performance_schema CPU counters).
+    # Everything engine-specific is declared here; the playbook only runs the
+    # generic lifecycle (start -> readiness -> stats_setup -> load ->
+    # stats_reset -> measure). stats_setup/stats_reset are exec'd inside the
+    # db container when defined; omit them for engines without per-query
+    # stats (per-query energy then degrades to absent).
+    db_engine: postgres
+
+    # false (default): the physical schema is exactly what BenchBase's
+    # per-engine DDL provides, unmodified. true: the loader adds the
+    # secondary indexes MySQL's DDL omits relative to postgres's, so
+    # cross-engine runs compare the same physical schema. Record this
+    # setting alongside results — it changed TPC-H Q4 cost by ~2x.
+    index_parity: false
+
+    db_engine_config:
+      postgres:
+        image: restq-db          # built by the playbook: postgres:17 + pg_stat_kcache
+        base_image: postgres:17
+        port: 5432
+        jdbc_scheme: postgresql
+        readiness: "pg_isready -U {{ db_user | default('admin') }} -d {{ db_name | default('tpchdb') }}"
+        run_env: >-
+          -e POSTGRES_USER={{ db_user | default('admin') }}
+          -e POSTGRES_PASSWORD={{ db_password | default('password') }}
+          -e POSTGRES_DB={{ db_name | default('tpchdb') }}
+        server_args: >-
+          -c shared_buffers={{ postgresql_config.shared_buffers }}
+          -c work_mem={{ postgresql_config.work_mem }}
+          -c maintenance_work_mem={{ postgresql_config.maintenance_work_mem }}
+          -c max_stack_depth={{ postgresql_config.max_stack_depth }}
+          -c max_connections={{ postgresql_config.max_connections }}
+          -c shared_preload_libraries=pg_stat_statements,pg_stat_kcache
+          -c pg_stat_statements.track=all
+        stats_setup: >-
+          psql -U {{ db_user | default('admin') }} -d {{ db_name | default('tpchdb') }} -c
+          "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+           CREATE EXTENSION IF NOT EXISTS pg_stat_kcache;"
+        stats_reset: >-
+          psql -U {{ db_user | default('admin') }} -d {{ db_name | default('tpchdb') }} -c
+          "SELECT pg_stat_statements_reset(); SELECT pg_stat_kcache_reset();"
+      mysql:
+        image: mysql:8.4
+        base_image: mysql:8.4
+        port: 3306
+        jdbc_scheme: mysql
+        readiness: "mysqladmin ping -h 127.0.0.1 -u{{ db_user | default('admin') }} -p{{ db_password | default('password') }}"
+        run_env: >-
+          -e MYSQL_USER={{ db_user | default('admin') }}
+          -e MYSQL_PASSWORD={{ db_password | default('password') }}
+          -e MYSQL_DATABASE={{ db_name | default('tpchdb') }}
+          -e MYSQL_ROOT_PASSWORD={{ db_password | default('password') }}
+        # buffer pool sized to hold the working set, mirroring postgres's
+        # effective cache (shared_buffers + guest page cache); InnoDB gets
+        # no page-cache benefit, so the default 128MB is not comparable
+        server_args: >-
+          --max-connections={{ postgresql_config.max_connections }}
+          --innodb-buffer-pool-size=1G
+        # SUM_CPU_TIME is gated by exactly one consumer, off by default;
+        # the app user also needs read access to performance_schema
+        stats_setup: >-
+          mysql -uroot -p{{ db_password | default('password') }} -N -B -e
+          "GRANT SELECT ON performance_schema.* TO '{{ db_user | default('admin') }}'@'%';
+           UPDATE performance_schema.setup_consumers SET ENABLED='YES' WHERE NAME='events_statements_cpu';"
+        stats_reset: >-
+          mysql -uroot -p{{ db_password | default('password') }} -N -B -e
+          "TRUNCATE performance_schema.events_statements_summary_by_digest;"
+
     # ====================================
     # Repository Configuration
     # ====================================
@@ -175,8 +272,8 @@ all:
       root
       {%- elif deployment_mode == 'manual' -%}
       {{ manual_nodes.ssh_user }}
-      {%- elif deployment_mode == 'localhost' -%}
-      {{ ansible_env.USER }}
+      {%- elif deployment_mode == 'localhost' or deployment_mode == 'macos' -%}
+      {{ lookup('env', 'USER') }}
       {%- endif -%}
     ansible_ssh_private_key_file: >-
       {%- if deployment_mode == 'grid5000' -%}
@@ -185,7 +282,7 @@ all:
       {{ manual_nodes.ssh_key }}
       {%- endif -%}
     ansible_connection: >-
-      {%- if deployment_mode == 'localhost' -%}
+      {%- if deployment_mode == 'localhost' or deployment_mode == 'macos' -%}
       local
       {%- else -%}
       ssh
@@ -204,7 +301,7 @@ all:
         {{ hostvars['grid5000']['node1'] }}
         {%- elif deployment_mode == 'manual' -%}
         {{ manual_nodes.node1_host }}
-        {%- elif deployment_mode == 'localhost' -%}
+        {%- elif deployment_mode == 'localhost' or deployment_mode == 'macos' -%}
         localhost
         {%- endif -%}
         
@@ -214,7 +311,7 @@ all:
         {{ hostvars['grid5000']['node2'] }}
         {%- elif deployment_mode == 'manual' -%}
         {{ manual_nodes.node2_host }}
-        {%- elif deployment_mode == 'localhost' -%}
+        {%- elif deployment_mode == 'localhost' or deployment_mode == 'macos' -%}
         localhost
         {%- endif -%}
         
@@ -224,6 +321,6 @@ all:
         {{ hostvars['grid5000']['node3'] }}
         {%- elif deployment_mode == 'manual' -%}
         {{ manual_nodes.node3_host }}
-        {%- elif deployment_mode == 'localhost' -%}
+        {%- elif deployment_mode == 'localhost' or deployment_mode == 'macos' -%}
         localhost
         {%- endif -%} 

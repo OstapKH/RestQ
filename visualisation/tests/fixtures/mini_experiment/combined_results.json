@@ -1,0 +1,584 @@
+{
+ "api_server_energy": [
+  {
+   "host": {
+    "consumption": 4708360,
+    "timestamp": 1783268289
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-api"
+     },
+     "consumption": 905068.3715850486,
+     "timestamp": 1783268289
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3928760,
+    "timestamp": 1783268290
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-api"
+     },
+     "consumption": 21265.705201575336,
+     "timestamp": 1783268290
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3562440,
+    "timestamp": 1783268291
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-api"
+     },
+     "consumption": 18880.564257985847,
+     "timestamp": 1783268291
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3616220,
+    "timestamp": 1783268292
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-api"
+     },
+     "consumption": 32721.47847086144,
+     "timestamp": 1783268292
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 4126920,
+    "timestamp": 1783268293
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-api"
+     },
+     "consumption": 27774.92394155654,
+     "timestamp": 1783268293
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 4159710.0000000005,
+    "timestamp": 1783268294
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-api"
+     },
+     "consumption": 14795.21726938672,
+     "timestamp": 1783268294
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3556670,
+    "timestamp": 1783268295
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-api"
+     },
+     "consumption": 18359.099967746144,
+     "timestamp": 1783268295
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3148090.0000000005,
+    "timestamp": 1783268296
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-api"
+     },
+     "consumption": 280525.1448450714,
+     "timestamp": 1783268296
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3710099.9999999995,
+    "timestamp": 1783268297
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-api"
+     },
+     "consumption": 18874.31148358146,
+     "timestamp": 1783268297
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3683500,
+    "timestamp": 1783268298
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-api"
+     },
+     "consumption": 18418.9686259347,
+     "timestamp": 1783268298
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3496870,
+    "timestamp": 1783268299
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-api"
+     },
+     "consumption": 15930.81143774186,
+     "timestamp": 1783268299
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3716030.0000000005,
+    "timestamp": 1783268300
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-api"
+     },
+     "consumption": 17265.280246198676,
+     "timestamp": 1783268300
+    }
+   ]
+  }
+ ],
+ "benchmark_results": {
+  "parameters_file": "parameters.xml",
+  "endpoints": {
+   "supplier-part-info": [
+    "/supplier-part-info?size=10&type=A&region=America",
+    "/supplier-part-info?size=15&type=B&region=Europe",
+    "/supplier-part-info?size=20&type=C&region=Asia",
+    "/supplier-part-info?size=25&type=D&region=Africa",
+    "/supplier-part-info?size=5&type=E&region=Australia"
+   ],
+   "local-supplier-volume": [
+    "/local-supplier-volume?region=Asia&startDate=2023-01-01",
+    "/local-supplier-volume?region=Europe&startDate=2023-06-01",
+    "/local-supplier-volume?region=America&startDate=2023-12-01",
+    "/local-supplier-volume?region=Africa&startDate=2022-01-01",
+    "/local-supplier-volume?region=Australia&startDate=2022-06-01"
+   ],
+   "order-revenue-info": [
+    "/order-revenue-info?segment=Automobile&date=2023-01-01",
+    "/order-revenue-info?segment=Building&date=2023-06-01",
+    "/order-revenue-info?segment=Furniture&date=2023-12-01",
+    "/order-revenue-info?segment=Machinery&date=2022-01-01",
+    "/order-revenue-info?segment=Household&date=2022-06-01"
+   ],
+   "pricing-summary": [
+    "/pricing-summary?delta=3&shipDate=1998-12-01",
+    "/pricing-summary?delta=5&shipDate=1999-06-01",
+    "/pricing-summary?delta=2&shipDate=2000-01-15",
+    "/pricing-summary?delta=7&shipDate=1997-03-01"
+   ],
+   "order-priority-count": [
+    "/order-priority-count?date=2023-01-01",
+    "/order-priority-count?date=2023-03-01",
+    "/order-priority-count?date=2023-06-01",
+    "/order-priority-count?date=2023-09-01",
+    "/order-priority-count?date=2023-12-01"
+   ],
+   "revenue-increase": [
+    "/revenue-increase?discount=0.2&quantity=10&startDate=2023-01-01",
+    "/revenue-increase?discount=0.15&quantity=20&startDate=2023-06-01",
+    "/revenue-increase?discount=0.3&quantity=5&startDate=2022-01-01",
+    "/revenue-increase?discount=0.25&quantity=15&startDate=2022-06-01",
+    "/revenue-increase?discount=0.1&quantity=30&startDate=2023-03-01",
+    "/revenue-increase?discount=0.35&quantity=8&startDate=2022-09-01"
+   ]
+  },
+  "global_config": {
+   "pauseBetweenExperiments_ms": 3000
+  },
+  "benchmark_type": "TPCH",
+  "pauseBetweenExperiments_ms": 3000,
+  "experiments": {
+   "EXP_1": {
+    "duration_seconds": 15,
+    "requests_per_second": 20,
+    "pause_between_runs_ms": 3000,
+    "runs_configured": 2,
+    "probabilities": {
+     "supplier-part-info": 0,
+     "local-supplier-volume": 0,
+     "order-revenue-info": 0,
+     "pricing-summary": 0.5,
+     "order-priority-count": 0.5,
+     "revenue-increase": 0
+    },
+    "runs": [
+     {
+      "experiment_name": "EXP_1",
+      "start_timestamp": 1783268306696,
+      "latencies": [
+       {
+        "latency_ns": 4731792461,
+        "timestamp": 1783268306701
+       },
+       {
+        "latency_ns": 24824917,
+        "timestamp": 1783268306703
+       },
+       {
+        "latency_ns": 4704470294,
+        "timestamp": 1783268306728
+       }
+      ],
+      "goodput": 0.5223144332888399,
+      "expected_duration_ms": 15000,
+      "terminals": 2,
+      "latency_distribution": {
+       "max_latency_ns": 4731792461,
+       "percentiles": {
+        "p99": 4731792461,
+        "p25": 3616441585,
+        "p90": 4731792461,
+        "p95": 4731792461,
+        "p75": 4458807210
+       },
+       "median_latency_ns": 4406410584,
+       "min_latency_ns": 24824917
+      },
+      "requests_per_second": 20,
+      "end_timestamp": 1783268323927,
+      "successful_requests": 9,
+      "run_number": 0,
+      "total_requests": 9,
+      "elapsed_time_ms": 17231,
+      "throughput": 0.5223144332888399,
+      "connections": 2,
+      "timestamp": 1783268323928
+     },
+     {
+      "experiment_name": "EXP_1",
+      "start_timestamp": 1783268326955,
+      "latencies": [
+       {
+        "latency_ns": 84880125,
+        "timestamp": 1783268326968
+       },
+       {
+        "latency_ns": 84271625,
+        "timestamp": 1783268326968
+       },
+       {
+        "latency_ns": 6540833,
+        "timestamp": 1783268327053
+       }
+      ],
+      "goodput": 1.1697860962566844,
+      "expected_duration_ms": 15000,
+      "terminals": 2,
+      "latency_distribution": {
+       "max_latency_ns": 5094537670,
+       "percentiles": {
+        "p99": 5094537670,
+        "p25": 8009584,
+        "p90": 4617273794,
+        "p95": 4648472293,
+        "p75": 4390846961
+       },
+       "median_latency_ns": 31976458,
+       "min_latency_ns": 6529625
+      },
+      "requests_per_second": 20,
+      "end_timestamp": 1783268344907,
+      "successful_requests": 21,
+      "run_number": 1,
+      "total_requests": 21,
+      "elapsed_time_ms": 17952,
+      "throughput": 1.1697860962566844,
+      "connections": 2,
+      "timestamp": 1783268344907
+     }
+    ],
+    "connections": 2
+   },
+   "EXP_1_warmup": {
+    "duration_seconds": 15,
+    "requests_per_second": 50,
+    "pause_between_runs_ms": 2000,
+    "runs_configured": 1,
+    "probabilities": {
+     "supplier-part-info": 0,
+     "local-supplier-volume": 0,
+     "order-revenue-info": 0,
+     "pricing-summary": 0,
+     "order-priority-count": 1,
+     "revenue-increase": 0
+    },
+    "runs": [
+     {
+      "experiment_name": "EXP_1_warmup",
+      "start_timestamp": 1783268288568,
+      "latencies": [
+       {
+        "latency_ns": 7368334961,
+        "timestamp": 1783268288677
+       },
+       {
+        "latency_ns": 6471616378,
+        "timestamp": 1783268296045
+       },
+       {
+        "latency_ns": 87432292,
+        "timestamp": 1783268302518
+       }
+      ],
+      "goodput": 12.696935451705112,
+      "expected_duration_ms": 15000,
+      "terminals": 1,
+      "latency_distribution": {
+       "max_latency_ns": 7368334961,
+       "percentiles": {
+        "p99": 6471616378,
+        "p25": 3543791,
+        "p90": 7920208,
+        "p95": 11860750,
+        "p75": 5100500
+       },
+       "median_latency_ns": 4168958,
+       "min_latency_ns": 2577292
+      },
+      "requests_per_second": 50,
+      "end_timestamp": 1783268303611,
+      "successful_requests": 191,
+      "run_number": 0,
+      "total_requests": 191,
+      "elapsed_time_ms": 15043,
+      "throughput": 12.696935451705112,
+      "connections": 1,
+      "timestamp": 1783268303611
+     }
+    ],
+    "connections": 1
+   }
+  },
+  "base_url": "http://192.168.64.9:8086/api/reports",
+  "config_file": "benchmark-config.xml",
+  "timestamp": "20260705_161808"
+ },
+ "db_server_energy": [
+  {
+   "host": {
+    "consumption": 4708360,
+    "timestamp": 1783268289
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-db"
+     },
+     "consumption": 710835.2033403056,
+     "timestamp": 1783268289
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3928760,
+    "timestamp": 1783268290
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-db"
+     },
+     "consumption": 2113690.366305372,
+     "timestamp": 1783268290
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3562440,
+    "timestamp": 1783268291
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-db"
+     },
+     "consumption": 2036958.1969246638,
+     "timestamp": 1783268291
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3616220,
+    "timestamp": 1783268292
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-db"
+     },
+     "consumption": 2232656.207336262,
+     "timestamp": 1783268292
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 4126920,
+    "timestamp": 1783268293
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-db"
+     },
+     "consumption": 2873949.3475215794,
+     "timestamp": 1783268293
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 4159710.0000000005,
+    "timestamp": 1783268294
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-db"
+     },
+     "consumption": 1964400.8419918907,
+     "timestamp": 1783268294
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3556670,
+    "timestamp": 1783268295
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-db"
+     },
+     "consumption": 2219025.3918487863,
+     "timestamp": 1783268295
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3148090.0000000005,
+    "timestamp": 1783268296
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-db"
+     },
+     "consumption": 1588305.22430929,
+     "timestamp": 1783268296
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3710099.9999999995,
+    "timestamp": 1783268297
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-db"
+     },
+     "consumption": 2389525.609470784,
+     "timestamp": 1783268297
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3683500,
+    "timestamp": 1783268298
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-db"
+     },
+     "consumption": 2301614.5053424328,
+     "timestamp": 1783268298
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3496870,
+    "timestamp": 1783268299
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-db"
+     },
+     "consumption": 2349805.008088835,
+     "timestamp": 1783268299
+    }
+   ]
+  },
+  {
+   "host": {
+    "consumption": 3716030.0000000005,
+    "timestamp": 1783268300
+   },
+   "consumers": [
+    {
+     "container": {
+      "id": "restq-db"
+     },
+     "consumption": 2446720.379571861,
+     "timestamp": 1783268300
+    }
+   ]
+  }
+ ],
+ "timestamp": "2026-07-05T19:35:00"
+}

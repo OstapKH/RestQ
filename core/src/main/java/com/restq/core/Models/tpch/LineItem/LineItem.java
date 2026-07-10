@@ -37,10 +37,10 @@ public class LineItem {
     @Column(name = "L_TAX", nullable = false, columnDefinition = "numeric(15, 2)")
     private BigDecimal tax;
 
-    @Column(name = "L_RETURNFLAG", nullable = false, columnDefinition = "bpchar")
+    @Column(name = "L_RETURNFLAG", nullable = false, columnDefinition = "char(1)")
     private String returnFlag;
 
-    @Column(name = "L_LINESTATUS", nullable = false, columnDefinition = "bpchar")
+    @Column(name = "L_LINESTATUS", nullable = false, columnDefinition = "char(1)")
     private String lineStatus;
 
     @Column(name = "L_SHIPDATE", nullable = false)
@@ -52,10 +52,10 @@ public class LineItem {
     @Column(name = "L_RECEIPTDATE", nullable = false)
     private LocalDate receiptDate;
 
-    @Column(name = "L_SHIPINSTRUCT", length = 25, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "L_SHIPINSTRUCT", length = 25, nullable = false, columnDefinition = "char(25)")
     private String shipInstruct;
 
-    @Column(name = "L_SHIPMODE", length = 10, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "L_SHIPMODE", length = 10, nullable = false, columnDefinition = "char(10)")
     private String shipMode;
 
     @Column(name = "L_COMMENT", length = 44, nullable = false)

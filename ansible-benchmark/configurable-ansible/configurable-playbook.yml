@@ -177,7 +177,7 @@
   remote_user: root
   vars:
     postgres_container_name: db-docker-container
-    postgres_image: postgres:14
+    postgres_image: postgres:17
     postgres_password: password
     tpcc_db: "{{ 'tpccdb' if benchmark_type == 'TPCC' else 'tpchdb' }}"
     tpch_db: "{{ 'tpchdb' if benchmark_type == 'TPCH' else 'tpccdb' }}"

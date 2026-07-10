@@ -1,57 +1,79 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <benchmark-config>
-  <pauseBetweenExperiments-ms>10000</pauseBetweenExperiments-ms>
+<pauseBetweenExperiments-ms>15000</pauseBetweenExperiments-ms>
 
-  <endpoints>
-    <endpoint name="new-order">
-      <url>/new-order</url>
-    </endpoint>
-    <endpoint name="payment">
-      <url>/payment</url>
-    </endpoint>
-    <endpoint name="order-status">
-      <url>/order-status</url>
-    </endpoint>
-    <endpoint name="delivery">
-      <url>/delivery</url>
-    </endpoint>
-    <endpoint name="stock-level">
-      <url>/stock-level</url>
-    </endpoint>
-  </endpoints>
+    <endpoints>
+        <endpoint name="pricing-summary">
+            <url>/pricing-summary?delta=3&amp;shipDate=1996-12-01</url>
+            <url>/pricing-summary?delta=5&amp;shipDate=1992-06-01</url>
+            <url>/pricing-summary?delta=2&amp;shipDate=1995-06-15</url>
+        </endpoint>
+        <endpoint name="supplier-part-info">
+            <url>/supplier-part-info?size=10&amp;type=A&amp;region=America</url>
+            <url>/supplier-part-info?size=15&amp;type=B&amp;region=Europe</url>
+            <url>/supplier-part-info?size=20&amp;type=C&amp;region=Asia</url>
+        </endpoint>
+        <endpoint name="order-revenue-info">
+            <url>/order-revenue-info?segment=Automobile&amp;date=1996-12-01</url>
+            <url>/order-revenue-info?segment=Building&amp;date=1992-06-01</url>
+            <url>/order-revenue-info?segment=Furniture&amp;date=1995-06-15</url>
+        </endpoint>
+        <endpoint name="order-priority-count">
+            <url>/order-priority-count?date=1996-12-01</url>
+            <url>/order-priority-count?date=1992-06-01</url>
+            <url>/order-priority-count?date=1995-06-15</url>
+        </endpoint>
+        <endpoint name="local-supplier-volume">
+            <url>/local-supplier-volume?region=Asia&amp;startDate=1996-12-01</url>
+            <url>/local-supplier-volume?region=Europe&amp;startDate=1992-06-01</url>
+            <url>/local-supplier-volume?region=America&amp;startDate=1995-06-15</url>
+        </endpoint>
+        <endpoint name="revenue-increase">
+            <url>/revenue-increase?discount=0.2&amp;quantity=10&amp;startDate=2023-01-01</url>
+            <url>/revenue-increase?discount=0.15&amp;quantity=20&amp;startDate=2023-06-01</url>
+            <url>/revenue-increase?discount=0.3&amp;quantity=5&amp;startDate=2022-01-01</url>
+            <url>/revenue-increase?discount=0.25&amp;quantity=15&amp;startDate=2022-06-01</url>
+        </endpoint>
+    </endpoints>
 
-  <experiment>
-    <experiment_name>TPCC_Standard_Mix_Warmup</experiment_name>
+<!-- End-to-end verification: warmup flag + uniform pacing at realistic
+     rates for the real (non-empty) Q4 cost of ~1.3 s/call. -->
+<experiment>
+    <experiment_name>E2E_warmup</experiment_name>
     <runs>1</runs>
-    <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>10</connections>
-    <requests-per-second>50</requests-per-second>
-    <duration-seconds>60</duration-seconds>
-    
-    <probabilities>
-      <probability endpoint="new-order">0.45</probability>
-      <probability endpoint="payment">0.43</probability>
-      <probability endpoint="order-status">0.04</probability>
-      <probability endpoint="delivery">0.04</probability>
-      <probability endpoint="stock-level">0.04</probability>
-    </probabilities>
-  </experiment>
+    <pause-between-runs-ms>0</pause-between-runs-ms>
+    <connections>4</connections>
+    <requests-per-second>1</requests-per-second>
+    <duration-seconds>30</duration-seconds>
+    <pacing>uniform</pacing>
+    <warmup>true</warmup>
 
-  <experiment>
-    <experiment_name>TPCC_Standard_Mix_Load</experiment_name>
-    <runs>3</runs>
-    <pause-between-runs-ms>5000</pause-between-runs-ms>
-    <connections>10</connections>
-    <requests-per-second>100</requests-per-second>
-    <duration-seconds>120</duration-seconds>
-    
     <probabilities>
-      <probability endpoint="new-order">0.45</probability>
-      <probability endpoint="payment">0.43</probability>
-      <probability endpoint="order-status">0.04</probability>
-      <probability endpoint="delivery">0.04</probability>
-      <probability endpoint="stock-level">0.04</probability>
+        <probability endpoint="pricing-summary">0.0</probability>
+        <probability endpoint="supplier-part-info">0.0</probability>
+        <probability endpoint="order-revenue-info">0.0</probability>
+        <probability endpoint="order-priority-count">1.0</probability>
+        <probability endpoint="local-supplier-volume">0.0</probability>
+        <probability endpoint="revenue-increase">0.0</probability>
     </probabilities>
-  </experiment>
+</experiment>
 
+<experiment>
+    <experiment_name>E2E_UNIFORM_4x1</experiment_name>
+    <runs>1</runs>
+    <pause-between-runs-ms>0</pause-between-runs-ms>
+    <connections>4</connections>
+    <requests-per-second>1</requests-per-second>
+    <duration-seconds>90</duration-seconds>
+    <pacing>uniform</pacing>
+
+    <probabilities>
+        <probability endpoint="pricing-summary">0.0</probability>
+        <probability endpoint="supplier-part-info">0.0</probability>
+        <probability endpoint="order-revenue-info">0.0</probability>
+        <probability endpoint="order-priority-count">1.0</probability>
+        <probability endpoint="local-supplier-volume">0.0</probability>
+        <probability endpoint="revenue-increase">0.0</probability>
+    </probabilities>
+</experiment>
 </benchmark-config>

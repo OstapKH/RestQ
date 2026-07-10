@@ -1,0 +1,17 @@
+[
+  {"experiment": "EXP_1_warmup", "run": 0, "queryid": 42,
+   "query": "SELECT o_orderpriority, count(*) FROM orders WHERE ...",
+   "calls": 191, "cpu_s": 1.2, "energy_j": 4.8, "mj_per_call": 25.13},
+  {"experiment": "EXP_1_warmup", "run": 0, "queryid": null,
+   "query": "_unattributed", "calls": null,
+   "cpu_s": 0.3, "energy_j": 1.2, "mj_per_call": null},
+  {"experiment": "EXP_1", "run": 0, "queryid": 42,
+   "query": "SELECT o_orderpriority, count(*) FROM orders WHERE ...",
+   "calls": 9, "cpu_s": 0.05, "energy_j": 0.2, "mj_per_call": 22.22},
+  {"experiment": "EXP_1", "run": 1, "queryid": 42,
+   "query": "SELECT o_orderpriority, count(*) FROM orders WHERE ...",
+   "calls": 21, "cpu_s": 0.11, "energy_j": 0.44, "mj_per_call": 20.95},
+  {"experiment": "EXP_1", "run": 1, "queryid": null,
+   "query": "_unattributed", "calls": null,
+   "cpu_s": 0.02, "energy_j": 0.08, "mj_per_call": null}
+]

@@ -1,0 +1,23 @@
+{
+ "benchmark_type": "TPCH",
+ "scale_factor": "1.0",
+ "experiment_duration": "02:00:00",
+ "timestamp": "2026-07-05T16:14:46Z",
+ "measurement_mode": "powermetrics-macos",
+ "db_container_id": "restq-db",
+ "api_container_id": "restq-api",
+ "attribution": {
+  "measurement_mode": "powermetrics-macos",
+  "samples": 59,
+  "attributed_energy_j": {
+   "restq-db": 225.985,
+   "restq-api": 6.629,
+   "restq-client": 4.081
+  },
+  "host_cpu_energy_j": 305.086,
+  "host_combined_energy_j": 305.535,
+  "attribution_coverage_of_cpu": 0.7758,
+  "truncated": false,
+  "interval_ms": 1000
+ }
+}

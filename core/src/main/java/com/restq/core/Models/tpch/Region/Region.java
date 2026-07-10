@@ -18,7 +18,7 @@ public class Region {
     @Column(name = "R_REGIONKEY", nullable = false)
     private Integer regionKey;
 
-    @Column(name = "R_NAME", length = 25, nullable = false, columnDefinition = "bpchar")
+    @Column(name = "R_NAME", length = 25, nullable = false, columnDefinition = "char(25)")
     private String name;
 
     @Column(name = "R_COMMENT", length = 152, nullable = false)
