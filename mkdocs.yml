@@ -1,0 +1,56 @@
+site_name: RestQ
+site_description: Web API benchmarking and energy measurement framework
+site_url: https://ostapkh.github.io/RestQ/
+repo_url: https://github.com/OstapKH/RestQ
+repo_name: OstapKH/RestQ
+
+# Local working notes, never published (also gitignored).
+exclude_docs: |
+  superpowers/
+
+theme:
+  name: material
+  logo: restq-logo.png
+  favicon: restq-logo.png
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue grey
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue grey
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quickstart.md
+      - Configuration: getting-started/configuration.md
+  - User Guide:
+      - Running Benchmarks: user-guide/benchmarks.md
+      - macOS Energy Measurement: user-guide/macos-energy-measurement.md
+      - Visualizer: user-guide/visualizer.md
+  - API Reference:
+      - REST Endpoints: api/rest-endpoints.md
+  - Architecture:
+      - Components Overview: components/overview.md

@@ -1,5 +1,6 @@
 <div align="center">
   <img src="docs/restq-logo.png" alt="REST-Q logo" width="200">
+  <p><strong><a href="https://ostapkh.github.io/RestQ/">📖 Documentation</a></strong></p>
 </div>
 
 # RESTQ - Web Applications Benchmarking and Energy Monitoring Framework

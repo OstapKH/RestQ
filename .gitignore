@@ -72,3 +72,6 @@ ansible-benchmark/macos-benchmark/*.deb
 ARCHITECTURE.md
 CLAUDE.md
 docs/superpowers/
+
+# MkDocs build output
+site/
