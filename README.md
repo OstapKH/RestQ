@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="docs/restq-logo.png" alt="REST-Q logo" width="200">
+</div>
+
 # RESTQ - Web Applications Benchmarking and Energy Monitoring Framework
 
 RESTQ is a comprehensive framework for benchmarking web applications and monitoring their energy consumption. It provides automated tools for performance testing, energy analysis, and result visualization across different database systems and configurations.
