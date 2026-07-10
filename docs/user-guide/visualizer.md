@@ -4,6 +4,8 @@ Browser-based tool for analyzing experiment folders — energy, performance,
 per-request latencies, and per-query energy — from both the Grid5000 and
 macOS pipelines.
 
+![Timeline view: power, throughput, and p99 latency of a TPC-H run on the macOS pipeline, with run boundaries and the warmup-to-load pause marked](../images/visualizer-timeline.png)
+
 ## Starting it
 
 ```bash
@@ -65,11 +67,15 @@ caption reports the sampling); every zoom reloads **full resolution** for the
 visible window, including requests that only partially overlap it.
 Double-click to reset.
 
+![Requests view: per-request latency segments of a warmup and a uniform-rate TPC-H experiment, with the pause between them shaded](../images/visualizer-requests.png)
+
 ### Queries
 Per-query energy table (macOS runs with guest sampling): for each run and
 query type — calls, CPU seconds, energy (J), mJ/call, sorted by energy.
 The `_unattributed` row is backend CPU outside statement execution
 (per-request protocol/session overhead). Respects the experiment selector.
+
+![Queries view: per-query energy table of a TPC-H run — calls, CPU seconds, joules, and mJ per call for each statement](../images/visualizer-queries.png)
 
 ### Correlation
 Per-run derived metrics for each folder: energy per request (J/req) bars and

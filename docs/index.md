@@ -51,6 +51,8 @@ Get started with RESTQ in just a few steps:
 3. **[macOS Energy Measurement](user-guide/macos-energy-measurement.md)** - Run benchmarks with energy measurement on an Apple silicon machine
 4. **[Visualizer](user-guide/visualizer.md)** - Analyze results in the browser: timelines, per-request latencies, per-query energy
 
+![RestQ visualizer showing power, throughput, and p99 latency of a TPC-H benchmark run](images/visualizer-timeline.png)
+
 
 ## Project Status
 
