@@ -56,6 +56,8 @@ These endpoints are available under the `/api/tpcc` base path and are active onl
 
 These endpoints are available under the `/api/reports` base path and are active only when `benchmark.type` is set to `TPCH`. They correspond to the 22 queries of the TPC-H specification, providing complex, read-only reports.
 
+For the parameter values and ranges that produce non-empty responses at scale factors 0.1, 0.5, and 1.0, see [TPC-H Parameter Ranges](tpch-parameter-ranges.md).
+
 -   **`GET /api/reports/pricing-summary` (Q1)**
     -   **Description:** Reports the amount of business that was billed, shipped, and returned.
     -   **Request Parameters:** `shipDate` (date), `delta` (integer, optional).

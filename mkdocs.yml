@@ -52,5 +52,6 @@ nav:
       - Visualizer: user-guide/visualizer.md
   - API Reference:
       - REST Endpoints: api/rest-endpoints.md
+      - TPC-H Parameter Ranges: api/tpch-parameter-ranges.md
   - Architecture:
       - Components Overview: components/overview.md
