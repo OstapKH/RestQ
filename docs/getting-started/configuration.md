@@ -24,12 +24,16 @@ When `deployment_mode` is set to `grid5000`, the following parameters are used:
 
 -   `grid_site`: The Grid'5000 site to use (e.g., `lille`).
 -   `grid_time`: The reservation time for the Grid'5000 nodes (e.g., `'02:00:00'`).
+-   `grid_job_poll_interval_s`: Seconds between optimized OAR job-state checks.
+-   `grid_job_wait_timeout_minutes`: Maximum time to wait for a reservation to enter the `Running` state.
 -   `scaphandre_timestep_s`: Timestep in seconds for power monitoring with Scaphandre.
 -   `ansible_ssh_private_key_file_g5k`: Path to the SSH private key for accessing Grid'5000.
 
 ```yaml
 grid_site: lille
 grid_time: '02:00:00'
+grid_job_poll_interval_s: 60
+grid_job_wait_timeout_minutes: 60
 scaphandre_timestep_s: 1
 ansible_ssh_private_key_file_g5k: ~/.ssh/grid5000_key
 ```

@@ -16,6 +16,9 @@ all:
     # ====================================
     grid_site: lille
     grid_time: '02:00:00'
+    # Poll OAR's optimized state query until each reservation is Running.
+    grid_job_poll_interval_s: 60
+    grid_job_wait_timeout_minutes: 60
     scaphandre_timestep_s: 1 # Timestep in seconds for power monitoring
     ansible_ssh_private_key_file_g5k: ~/.ssh/grid5000_key
     
