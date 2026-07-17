@@ -1,10 +1,15 @@
 - name: Initialize grid 5000
   hosts: grid5000
+  gather_facts: false
   remote_user: oskilbaso
   vars:
     OS_image: ubuntu2204-x64-min
     grid_time: "{{ experiment_duration | default('5:00:00') }}"
   tasks:
+
+    - name: Skip Grid5000 initialization for other deployment modes
+      ansible.builtin.meta: end_play
+      when: deployment_mode != 'grid5000'
 
     # Reserve nodes for lille site (specific chifflot nodes + 1 other)
     - name: Go to the frontend of {{ grid_site }} then create a job for chifflot nodes (lille site)
