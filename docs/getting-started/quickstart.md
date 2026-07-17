@@ -52,6 +52,11 @@ The playbook builds the images, restores the database, starts the API, runs
 the benchmark client to completion, and writes an experiment folder to
 `~/Desktop/Results_rest_q_xml_benchmarks/experiment_<TYPE>_<timestamp>/`.
 
+Scaphandre records throughout setup, but the energy series embedded in
+`combined_results.json` are trimmed to the inclusive interval from the first
+experiment start to the last experiment end. The raw Scaphandre files retain
+the complete recording for diagnostics.
+
 In `grid5000` mode, the playbook releases its OAR reservations only after
 `combined_results.json` has been downloaded successfully. If the run fails
 before that point, the reservations remain active for investigation until you

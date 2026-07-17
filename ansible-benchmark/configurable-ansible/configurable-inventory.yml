@@ -264,6 +264,13 @@ all:
     # ====================================
     # Experiment duration (used for grid reservation time)
     experiment_duration: '02:00:00'
+
+    scaphandre_timeout_s: >-
+      {{
+        ((experiment_duration.split(':')[0] | int) * 3600)
+        + ((experiment_duration.split(':')[1] | int) * 60)
+        + (experiment_duration.split(':')[2] | int)
+      }}
     
     # Use a static timestamp that will be consistent across all nodes
     # You can modify this for each experiment run

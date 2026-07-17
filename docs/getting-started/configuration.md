@@ -116,7 +116,7 @@ scale_factor: "1.0"
 
 ## Experiment Tracking
 
--   `experiment_duration`: Used for grid reservation time.
+-   `experiment_duration`: `HH:MM:SS` duration used for the Grid5000 reservation and converted automatically to seconds for the Scaphandre measurement safety timeout.
 -   `timestamp`: A timestamp for the experiment run.
 
 ```yaml

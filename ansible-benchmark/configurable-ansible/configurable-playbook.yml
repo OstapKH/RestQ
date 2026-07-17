@@ -1,3 +1,25 @@
+- name: Validate experiment timing configuration
+  hosts: localhost
+  gather_facts: false
+  tags: timing_validation
+  tasks:
+    - name: Validate experiment duration format
+      assert:
+        that:
+          - experiment_duration is match('^[0-9]+:[0-5][0-9]:[0-5][0-9]$')
+        fail_msg: >-
+          experiment_duration must use HH:MM:SS format with valid minutes and seconds;
+          received {{ experiment_duration }}
+
+    - name: Validate experiment duration is positive
+      assert:
+        that:
+          - (scaphandre_timeout_s | int) > 0
+        fail_msg: "experiment_duration must be greater than 00:00:00"
+        success_msg: >-
+          Scaphandre timeout is {{ scaphandre_timeout_s }} seconds for
+          experiment_duration {{ experiment_duration }}
+
 - name: Initialize grid 5000
   hosts: grid5000
   gather_facts: false
@@ -636,8 +658,8 @@
 
     - name: Start Scaphandre measurement on DB server
       shell: |
-        nohup scaphandre json -t 3600 -s {{ scaphandre_timestep_s }} --containers -f /root/experiments_summary_dbserver.json &
-      async: 3600
+        nohup scaphandre json -t {{ scaphandre_timeout_s }} -s {{ scaphandre_timestep_s }} --containers -f /root/experiments_summary_dbserver.json &
+      async: "{{ scaphandre_timeout_s | int }}"
       poll: 0
       register: scaphandre_task
 
@@ -823,8 +845,8 @@
 
     - name: Start Scaphandre measurement on API server
       shell: |
-        nohup scaphandre json -t 3600 -s {{ scaphandre_timestep_s }} --containers -f /root/experiments_summary_apiserver.json &
-      async: 3600
+        nohup scaphandre json -t {{ scaphandre_timeout_s }} -s {{ scaphandre_timestep_s }} --containers -f /root/experiments_summary_apiserver.json &
+      async: "{{ scaphandre_timeout_s | int }}"
       poll: 0
       register: scaphandre_task
 
@@ -1077,7 +1099,7 @@
   tasks:
     - name: Stop Scaphandre measurement on Node 1
       shell: |
-        pkill -f "scaphandre json -t 3600 -s {{ scaphandre_timestep_s }}"
+        pkill -f "scaphandre json -t {{ scaphandre_timeout_s }} -s {{ scaphandre_timestep_s }}"
       ignore_errors: true
 
     - name: Log Scaphandre stop on Node 1
@@ -1090,7 +1112,7 @@
   tasks:
     - name: Stop Scaphandre measurement on Node 2
       shell: |
-        pkill -f "scaphandre json -t 3600 -s {{ scaphandre_timestep_s }}"
+        pkill -f "scaphandre json -t {{ scaphandre_timeout_s }} -s {{ scaphandre_timestep_s }}"
       ignore_errors: true
 
     - name: Log Scaphandre stop on Node 2

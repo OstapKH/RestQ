@@ -13,6 +13,10 @@ import java.util.Date;
 import org.json.JSONException;
 
 public class JsonCombiner {
+    private static final long MILLIS_TIMESTAMP_THRESHOLD = 100_000_000_000L;
+
+    record ExperimentWindow(long startMs, long endMs) {}
+
     public static void main(String[] args) {
        if (args.length < 2) {
            System.err.println("Usage: JsonCombiner <inputDirectory> <outputFile>");
@@ -32,6 +36,7 @@ public class JsonCombiner {
             combinedJson.put("timestamp", timestamp);
             
             Path inputPath = Paths.get(inputDir);
+            JSONObject benchmarkJson = null;
             
             // Find and add ORIGINAL benchmark results file
             Path benchmarkFile = null;
@@ -46,7 +51,7 @@ public class JsonCombiner {
             if (benchmarkFile != null && Files.exists(benchmarkFile)) {
                 try {
                     String benchmarkContent = new String(Files.readAllBytes(benchmarkFile));
-                    JSONObject benchmarkJson = new JSONObject(benchmarkContent);
+                    benchmarkJson = new JSONObject(benchmarkContent);
                     combinedJson.put("benchmark_results", benchmarkJson);
                 } catch (JSONException | IOException e) {
                     System.err.println("Error reading/parsing benchmark results file " + benchmarkFile + ": " + e.getMessage());
@@ -54,6 +59,10 @@ public class JsonCombiner {
             } else {
                  System.out.println("Benchmark results file not found in " + inputDir);
             }
+
+            ExperimentWindow experimentWindow = findExperimentWindow(benchmarkJson);
+            System.out.printf("Filtering energy measurements to experiment window [%d, %d] ms%n",
+                    experimentWindow.startMs(), experimentWindow.endMs());
 
             // Find and add ORIGINAL container info file
             Path containerInfoFile = inputPath.resolve("container_info.json");
@@ -77,10 +86,13 @@ public class JsonCombiner {
                      try {
                          String content = new String(Files.readAllBytes(fixedEnergyFile));
                          JSONArray jsonArray = new JSONArray(content);
+                         JSONArray filteredArray = filterEnergyToWindow(jsonArray, experimentWindow);
+                         System.out.printf("Kept %d of %d measurements from %s%n",
+                                 filteredArray.length(), jsonArray.length(), filename);
                          if (filename.contains("dbserver")) {
-                             combinedJson.put("db_server_energy", jsonArray);
+                             combinedJson.put("db_server_energy", filteredArray);
                          } else if (filename.contains("apiserver")) {
-                             combinedJson.put("api_server_energy", jsonArray);
+                             combinedJson.put("api_server_energy", filteredArray);
                          }
                      } catch (JSONException | IOException e) {
                          System.err.println("Error reading/parsing fixed energy file " + filename + ": " + e.getMessage());
@@ -97,7 +109,90 @@ public class JsonCombiner {
         } catch (Exception e) {
             System.err.println("Error combining JSON files: " + e.getMessage());
             e.printStackTrace();
+            System.exit(1);
         }
     }
-} 
 
+    static ExperimentWindow findExperimentWindow(JSONObject benchmarkJson) {
+        if (benchmarkJson == null) {
+            throw new IllegalArgumentException("Benchmark results are required to filter energy measurements");
+        }
+
+        JSONObject experiments = benchmarkJson.optJSONObject("experiments");
+        if (experiments == null) {
+            throw new IllegalArgumentException("Benchmark results contain no experiments");
+        }
+
+        Long earliestStart = null;
+        Long latestEnd = null;
+        for (String experimentId : experiments.keySet()) {
+            JSONObject experiment = experiments.optJSONObject(experimentId);
+            if (experiment == null) {
+                continue;
+            }
+            JSONArray runs = experiment.optJSONArray("runs");
+            if (runs == null) {
+                continue;
+            }
+            for (int i = 0; i < runs.length(); i++) {
+                JSONObject run = runs.optJSONObject(i);
+                Long start = timestampValue(run, "start_timestamp");
+                Long end = timestampValue(run, "end_timestamp");
+                if (start == null || end == null || end < start) {
+                    continue;
+                }
+                earliestStart = earliestStart == null ? start : Math.min(earliestStart, start);
+                latestEnd = latestEnd == null ? end : Math.max(latestEnd, end);
+            }
+        }
+
+        if (earliestStart == null || latestEnd == null) {
+            throw new IllegalArgumentException(
+                    "Benchmark results contain no valid start_timestamp/end_timestamp run boundaries");
+        }
+        return new ExperimentWindow(earliestStart, latestEnd);
+    }
+
+    static JSONArray filterEnergyToWindow(JSONArray measurements, ExperimentWindow window) {
+        JSONArray filtered = new JSONArray();
+        for (int i = 0; i < measurements.length(); i++) {
+            JSONObject measurement = measurements.optJSONObject(i);
+            Long timestampMs = measurementTimestampMs(measurement);
+            if (timestampMs != null
+                    && timestampMs >= window.startMs()
+                    && timestampMs <= window.endMs()) {
+                filtered.put(measurement);
+            }
+        }
+        return filtered;
+    }
+
+    private static Long measurementTimestampMs(JSONObject measurement) {
+        if (measurement == null) {
+            return null;
+        }
+
+        JSONObject host = measurement.optJSONObject("host");
+        Long timestamp = timestampValue(host, "timestamp");
+        if (timestamp == null) {
+            JSONArray consumers = measurement.optJSONArray("consumers");
+            if (consumers != null) {
+                for (int i = 0; i < consumers.length() && timestamp == null; i++) {
+                    timestamp = timestampValue(consumers.optJSONObject(i), "timestamp");
+                }
+            }
+        }
+        if (timestamp == null) {
+            return null;
+        }
+        return timestamp < MILLIS_TIMESTAMP_THRESHOLD ? timestamp * 1000 : timestamp;
+    }
+
+    private static Long timestampValue(JSONObject object, String key) {
+        if (object == null || !object.has(key)) {
+            return null;
+        }
+        Object value = object.opt(key);
+        return value instanceof Number number ? number.longValue() : null;
+    }
+}
