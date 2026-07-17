@@ -1079,14 +1079,21 @@
         cd {{ project_directory }}/api-http
         mvn clean install -P benchmark-app
 
-    - name: Verify API server is accessible
-      wait_for:
-        host: "{{ hostvars['node2'].ansible_host }}"
-        port: "{{ api_port }}"
-        delay: 5
-        timeout: 60
-        state: started
-      delegate_to: "{{ hostvars['node2'].ansible_host }}"
+    - name: Verify API health from benchmark client
+      uri:
+        url: "http://{{ hostvars['node2'].ansible_host }}:{{ api_port }}/api/health"
+        method: GET
+        status_code: 200
+        return_content: true
+        timeout: 5
+      register: api_health
+      changed_when: false
+      until: >-
+        (api_health.status | default(0) | int) == 200 and
+        (api_health.json | default({})).get('status', '') == 'UP' and
+        (api_health.json | default({})).get('benchmark', '') == benchmark_type
+      retries: 12
+      delay: 5
 
     - name: Run benchmark
       shell: |
