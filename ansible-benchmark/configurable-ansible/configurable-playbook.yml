@@ -1395,3 +1395,39 @@
     - name: Log results download
       debug:
         msg: "Combined {{ benchmark_type }} benchmark results downloaded to your local machine at ~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/combined_results.json" 
+
+    - name: Mark Grid5000 experiment as successfully completed
+      set_fact:
+        benchmark_completed_successfully: true
+      delegate_to: grid5000
+      delegate_facts: true
+      when: deployment_mode == 'grid5000'
+
+- name: Release Grid5000 reservations after successful completion
+  hosts: grid5000
+  gather_facts: false
+  remote_user: oskilbaso
+  tasks:
+    - name: Skip reservation cleanup outside Grid5000 mode
+      ansible.builtin.meta: end_play
+      when: deployment_mode != 'grid5000'
+
+    - name: Preserve reservations when the experiment did not complete successfully
+      ansible.builtin.meta: end_play
+      when: not (benchmark_completed_successfully | default(false) | bool)
+
+    - name: Release Lille reservations
+      command: "oardel {{ chifflot_job_id }} {{ other_job_id }}"
+      register: lille_cleanup_result
+      when: grid_site == 'lille'
+
+    - name: Release non-Lille reservation
+      command: "oardel {{ random_job_id }}"
+      register: random_cleanup_result
+      when: grid_site != 'lille'
+
+    - name: Report released Grid5000 reservations
+      debug:
+        msg: >-
+          Released Grid5000 job(s):
+          {{ (chifflot_job_id ~ ', ' ~ other_job_id) if grid_site == 'lille' else random_job_id }}
