@@ -48,6 +48,24 @@ cd ansible-benchmark/configurable-ansible
 ansible-playbook -i configurable-inventory.yml configurable-playbook.yml
 ```
 
+The default Grid’5000 profile is the complete TPC-H SF1 query study: 19
+queries, five labelled non-empty parameter sets per query, one 20-second
+warm-up and three 45-second measured runs. Allow roughly **80–105 minutes**
+including reservation, deployment and database restore; the result folder is
+normally **10–20 MB**.
+
+Before spending that reservation time, run the two-query Q01/Q06 smoke profile:
+
+```bash
+ansible-playbook -i configurable-inventory.yml configurable-playbook.yml \
+  -e benchmark_config_file=benchmark-config-smoke.xml \
+  -e benchmark_parameters_file=parameters-smoke.xml
+```
+
+The playbook clones `github_repo_url` on all remote nodes. Commit and push the
+implementation you intend to measure before a Grid’5000 run; unpushed changes
+from the laptop are not transferred, while the two selected XML files are.
+
 The playbook builds the images, restores the database, starts the API, runs
 the benchmark client to completion, and writes an experiment folder to
 `~/Desktop/Results_rest_q_xml_benchmarks/experiment_<TYPE>_<timestamp>/`.
@@ -57,10 +75,11 @@ Scaphandre records throughout setup, but the energy series embedded in
 experiment start to the last experiment end. The raw Scaphandre files retain
 the complete recording for diagnostics.
 
-In `grid5000` mode, the playbook releases its OAR reservations only after
-`combined_results.json` has been downloaded successfully. If the run fails
-before that point, the reservations remain active for investigation until you
-delete them manually or their walltime expires.
+In `grid5000` mode, the playbook releases its OAR reservations only when the
+benchmark process exits successfully, strict client and energy validation
+passes, and `combined_results.json` is downloaded. Any failed preflight, HTTP
+or transport error, missing run/parameter, incomplete energy coverage, or
+collection failure preserves the jobs for investigation.
 
 ## 4. Analyze the results
 

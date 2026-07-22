@@ -14,13 +14,14 @@ all:
     # ====================================
     # Grid5000 Configuration (for grid5000 mode)
     # ====================================
+    grid_user: okilbaso
     grid_site: lille
-    grid_time: '02:00:00'
+    grid_time: '02:30:00'
     # Poll OAR's optimized state query until each reservation is Running.
     grid_job_poll_interval_s: 60
     grid_job_wait_timeout_minutes: 60
     scaphandre_timestep_s: 1 # Timestep in seconds for power monitoring
-    ansible_ssh_private_key_file_g5k: ~/.ssh/grid5000_key
+    ansible_ssh_private_key_file_g5k: ~/.ssh/grid5000_key_ubs
     
     # ====================================
     # Manual Node Configuration (for manual mode)
@@ -31,7 +32,7 @@ all:
       node2_host: "chifflot-5.lille.grid5000.fr"  # API Server  
       node3_host: "chiclet-5.lille.grid5000.fr"   # Benchmark Client
       ssh_user: "root"          # SSH username for manual nodes
-      ssh_key: "~/.ssh/grid5000_key"  # SSH private key for manual nodes
+      ssh_key: "~/.ssh/grid5000_key_ubs"  # SSH private key for manual nodes
     
     # ====================================
     # Localhost Configuration (for localhost mode)
@@ -164,6 +165,8 @@ all:
     # Benchmark Type: TPCC (transaction processing) or TPCH (decision support)
     # Options: TPCC, TPCH
     benchmark_type: TPCH
+    benchmark_config_file: benchmark-config.xml
+    benchmark_parameters_file: parameters.xml
     
     # Scale Factor: 
     # - For TPCC: number of warehouses (must be integer like 1.0, 5.0)
@@ -263,7 +266,7 @@ all:
     # Experiment Tracking
     # ====================================
     # Experiment duration (used for grid reservation time)
-    experiment_duration: '02:00:00'
+    experiment_duration: '02:30:00'
 
     scaphandre_timeout_s: >-
       {{
@@ -302,7 +305,7 @@ all:
     # Grid5000 frontend (only used in grid5000 mode)
     grid5000:
       ansible_host: "frontend.{{ grid_site }}.grid5000.fr"
-      ansible_user: oskilbaso
+      ansible_user: "{{ grid_user }}"
       
     # Dynamic node configuration based on deployment_mode
     node1:

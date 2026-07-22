@@ -20,10 +20,21 @@
           Scaphandre timeout is {{ scaphandre_timeout_s }} seconds for
           experiment_duration {{ experiment_duration }}
 
+    - name: Generate one controller timestamp for the full run
+      set_fact:
+        timestamp: "{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
+
+    - name: Propagate the run timestamp to every inventory host
+      set_fact:
+        timestamp: "{{ hostvars['localhost'].timestamp }}"
+      delegate_to: "{{ item }}"
+      delegate_facts: true
+      loop: "{{ groups['all'] }}"
+
 - name: Initialize grid 5000
   hosts: grid5000
   gather_facts: false
-  remote_user: oskilbaso
+  remote_user: "{{ grid_user }}"
   vars:
     OS_image: ubuntu2204-x64-min
     grid_time: "{{ experiment_duration | default('5:00:00') }}"
@@ -32,6 +43,10 @@
     - name: Skip Grid5000 initialization for other deployment modes
       ansible.builtin.meta: end_play
       when: deployment_mode != 'grid5000'
+
+    - name: Default Grid5000 cleanup verdict to preserve reservations
+      set_fact:
+        benchmark_completed_successfully: false
 
     # Reserve nodes for lille site (specific chifflot nodes + 1 other)
     - name: Go to the frontend of {{ grid_site }} then create a job for chifflot nodes (lille site)
@@ -1059,20 +1074,13 @@
 
     - name: Copy custom benchmark-config.xml (local) to the server
       copy:
-        src: "../benchmark-config/benchmark-config.xml"
+        src: "../benchmark-config/{{ benchmark_config_file }}"
         dest: "{{ project_directory }}/api-http/src/main/resources/benchmark-config.xml"
 
-    - name: Modify API port URL in ApiBenchmark.java
-      lineinfile:
-        path: "{{ project_directory }}/api-http/src/main/java/com/restq/api_http/Benchmark/ApiBenchmark.java"
-        regexp: '^    private static String BASE_URL =.*'
-        line: "    private static String BASE_URL = \"http://{{ hostvars['node2'].ansible_host }}:8086/api/{{ 'tpcc' if benchmark_type == 'TPCC' else 'reports' }}\";"
-
-    - name: Configure benchmark parameters in ApiBenchmark.java
-      lineinfile:
-        path: "{{ project_directory }}/api-http/src/main/java/com/restq/api_http/Benchmark/ApiBenchmark.java"
-        regexp: '^    private static String BENCHMARK_TYPE =.*'
-        line: "    private static String BENCHMARK_TYPE = \"{{ benchmark_type }}\";"
+    - name: Copy labelled benchmark parameters (local) to the server
+      copy:
+        src: "../benchmark-config/{{ benchmark_parameters_file }}"
+        dest: "{{ project_directory }}/api-http/src/main/resources/parameters.xml"
 
     - name: Build Benchmark module
       shell: |
@@ -1095,10 +1103,28 @@
       retries: 12
       delay: 5
 
+    - name: Create results directory on controller before workload
+      file:
+        path: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}"
+        state: directory
+        mode: '0755'
+      delegate_to: localhost
+
     - name: Run benchmark
       shell: |
         cd {{ project_directory }}/api-http
         java -jar target/api-http-1.0-SNAPSHOT-jar-with-dependencies.jar > /root/benchmark_client.log 2>&1
+      environment:
+        BENCHMARK_CONFIG: "{{ project_directory }}/api-http/src/main/resources/benchmark-config.xml"
+        BENCHMARK_PARAMETERS: "{{ project_directory }}/api-http/src/main/resources/parameters.xml"
+        BENCHMARK_BASE_URL: "http://{{ hostvars['node2'].ansible_host }}:{{ api_port }}/api/reports"
+        BENCHMARK_TYPE: "{{ benchmark_type }}"
+      register: benchmark_run
+      failed_when: false
+
+    - name: Preserve benchmark process return code for final verdict
+      set_fact:
+        benchmark_run_rc: "{{ benchmark_run.rc | default(1) | int }}"
           
 - name: Stopping Scaphandre measurement on Node 1
   hosts: node1
@@ -1126,22 +1152,16 @@
       debug:
         msg: "Scaphandre measurement stopped on API server."
 
-- name: Finalise global timestamp (just before result collection)
+- name: Ensure controller result directory exists before collection
   hosts: localhost
   gather_facts: false
   run_once: true
   tasks:
-    - name: Generate unified timestamp on controller
-      set_fact:
-        timestamp: "{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
-
-    - name: Propagate timestamp to every host
-      set_fact:
-        timestamp: "{{ hostvars['localhost'].timestamp }}"
-      delegate_to: "{{ item }}"
-      delegate_facts: true
-      loop: "{{ groups['all'] }}"
-      run_once: true
+    - name: Create controller result directory
+      file:
+        path: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}"
+        state: directory
+        mode: '0755'
 
 - name: Fetch results from Node 1
   hosts: node1
@@ -1152,6 +1172,8 @@
         src: /root/experiments_summary_dbserver.json
         dest: /tmp/experiments_summary_dbserver.json
         flat: yes
+      register: db_energy_fetch
+      ignore_errors: true
 
 - name: Fetch results from Node 2
   hosts: node2
@@ -1162,6 +1184,8 @@
         src: /root/experiments_summary_apiserver.json
         dest: /tmp/experiments_summary_apiserver.json
         flat: yes
+      register: api_energy_fetch
+      ignore_errors: true
 
     - name: Create results directory on controller
       local_action:
@@ -1289,6 +1313,8 @@
         src: /root/benchmark_client.log
         dest: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/benchmark_client.log"
         flat: yes
+      register: benchmark_log_fetch
+      ignore_errors: true
 
     - name: Log benchmark client log download
       debug:
@@ -1345,22 +1371,17 @@
       copy:
         src: /tmp/experiments_summary_dbserver.json
         dest: /root/fixed_json_files/experiments_summary_dbserver.json
+      register: db_energy_copy
+      ignore_errors: true
+      when: not (hostvars['node1'].db_energy_fetch.failed | default(true) | bool)
 
     - name: Copy API server results from controller to Node 3
       copy:
         src: /tmp/experiments_summary_apiserver.json
         dest: /root/fixed_json_files/experiments_summary_apiserver.json
-
-    - name: Compile JsonFixer utility
-      shell: |
-        cd {{ project_directory }}/api-http
-        javac -cp target/api-http-1.0-SNAPSHOT-jar-with-dependencies.jar src/main/java/com/restq/utils/JsonFixer.java
-      register: fixer_compile_output
-      changed_when: "'Compiled' in fixer_compile_output.stdout" # Heuristic change detection
-
-    - name: Log JsonFixer compilation
-      debug:
-        msg: "JsonFixer compilation output: {{ fixer_compile_output.stdout_lines }}"
+      register: api_energy_copy
+      ignore_errors: true
+      when: not (hostvars['node2'].api_energy_fetch.failed | default(true) | bool)
 
     - name: Find benchmark results files
       find:
@@ -1368,13 +1389,37 @@
         patterns: "benchmark_results_*.json"
         recurse: yes
       register: benchmark_files
+      failed_when: false
 
     - name: Copy benchmark results to fixed json directory
       copy:
         src: "{{ item.path }}"
         dest: /root/fixed_json_files/
         remote_src: yes
-      with_items: "{{ benchmark_files.files }}"
+      with_items: "{{ benchmark_files.files | default([]) }}"
+      failed_when: false
+
+    - name: Record missing partial diagnostic artifacts
+      set_fact:
+        diagnostic_missing_artifacts: >-
+          {{
+            (['db_scaphandre'] if ((hostvars['node1'].db_energy_fetch.failed | default(true) | bool)
+              or (db_energy_copy.failed | default(true) | bool)) else [])
+            + (['api_scaphandre'] if ((hostvars['node2'].api_energy_fetch.failed | default(true) | bool)
+              or (api_energy_copy.failed | default(true) | bool)) else [])
+            + (['benchmark_results'] if (benchmark_files.matched | default(0) | int) == 0 else [])
+            + (['benchmark_client_log'] if (benchmark_log_fetch.failed | default(true) | bool) else [])
+          }}
+
+    - name: Create diagnostic manifest JSON
+      copy:
+        content: |
+          {
+            "benchmark_run_rc": {{ benchmark_run_rc | default(1) | int }},
+            "missing_artifacts": {{ diagnostic_missing_artifacts | to_json }}
+          }
+        dest: /root/fixed_json_files/diagnostic_manifest.json
+        mode: '0644'
 
     - name: Create experiment info JSON
       copy:
@@ -1384,6 +1429,15 @@
             "scale_factor": "{{ scale_factor }}",
             "experiment_duration": "{{ experiment_duration }}",
             "timestamp": "{{ timestamp }}",
+            "node1_hostname": "{{ hostvars['node1'].ansible_host }}",
+            "node2_hostname": "{{ hostvars['node2'].ansible_host }}",
+            "node3_hostname": "{{ hostvars['node3'].ansible_host }}",
+            "node3_processor": {{ ansible_processor | default([]) | to_json }},
+            "node3_processor_vcpus": {{ ansible_processor_vcpus | default(0) | int }},
+            "schedule": "{{ 'TPC-H SF1 Q01/Q06 smoke' if benchmark_config_file == 'benchmark-config-smoke.xml' else 'TPC-H SF1 isolated query study' }}",
+            "random_seed": 5000,
+            "query_count": {{ 2 if benchmark_config_file == 'benchmark-config-smoke.xml' else 19 }},
+            "measured_run_count": {{ 2 if benchmark_config_file == 'benchmark-config-smoke.xml' else 57 }},
             "db_container_id": "{{ hostvars['node1'].db_container_id_fact | default('') }}",
             "api_container_id": "{{ hostvars['node2'].api_container_id_fact | default('') }}"
           }
@@ -1403,23 +1457,64 @@
         src: /root/fixed_json_files/experiment_info.json
         dest: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/experiment_info.json"
         flat: yes
+      failed_when: false
+
+    - name: Fetch diagnostic manifest
+      fetch:
+        src: /root/fixed_json_files/diagnostic_manifest.json
+        dest: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/diagnostic_manifest.json"
+        flat: yes
+      failed_when: false
         
     - name: Build and run JSON combiner
       shell: |
         cd {{ project_directory }}/api-http
-        javac -cp {{ project_directory }}/api-http/target/api-http-1.0-SNAPSHOT-jar-with-dependencies.jar src/main/java/com/restq/utils/JsonCombiner.java
-        java -cp {{ project_directory }}/api-http/target/api-http-1.0-SNAPSHOT-jar-with-dependencies.jar:src/main/java com.restq.utils.JsonCombiner /root/fixed_json_files /root/combined_results_{{ benchmark_type }}_{{ timestamp }}.json
+        java -cp target/api-http-1.0-SNAPSHOT-jar-with-dependencies.jar com.restq.utils.JsonCombiner /root/fixed_json_files /root/combined_results_{{ benchmark_type }}_{{ timestamp }}.json
       register: combiner_output
+      failed_when: false
       
     - name: Log combiner output
       debug:
-        msg: "{{ combiner_output.stdout_lines }}"
+        msg:
+          stdout: "{{ combiner_output.stdout_lines | default([]) }}"
+          stderr: "{{ combiner_output.stderr_lines | default([]) }}"
+          rc: "{{ combiner_output.rc | default(1) }}"
+
+    - name: Check whether combined results were produced
+      stat:
+        path: /root/combined_results_{{ benchmark_type }}_{{ timestamp }}.json
+      register: combined_result_stat
+
+    - name: Read combined validation verdict
+      slurp:
+        src: /root/combined_results_{{ benchmark_type }}_{{ timestamp }}.json
+      register: combined_result_content
+      ignore_errors: true
+      when: combined_result_stat.stat.exists
+
+    - name: Default combined validation verdict to failed
+      set_fact:
+        combined_validation_passed: false
+
+    - name: Parse combined validation verdict
+      set_fact:
+        combined_validation_passed: >-
+          {{
+            ((combined_result_content.content | b64decode | from_json).validation.valid
+              | default(false)) | bool
+          }}
+      when:
+        - combined_result_stat.stat.exists
+        - combined_result_content is succeeded
         
     - name: Fetch combined results file
       fetch:
         src: /root/combined_results_{{ benchmark_type }}_{{ timestamp }}.json
         dest: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/combined_results.json"
         flat: yes
+      register: combined_results_fetch
+      ignore_errors: true
+      when: combined_result_stat.stat.exists
         
     - name: Log results download
       debug:
@@ -1430,12 +1525,28 @@
         benchmark_completed_successfully: true
       delegate_to: grid5000
       delegate_facts: true
-      when: deployment_mode == 'grid5000'
+      when:
+        - deployment_mode == 'grid5000'
+        - benchmark_run_rc | int == 0
+        - combined_validation_passed | bool
+        - combined_results_fetch is succeeded
+
+    - name: Fail after diagnostic collection when the final verdict is invalid
+      ansible.builtin.fail:
+        msg: >-
+          Benchmark was preserved for diagnosis: client rc={{ benchmark_run_rc | default(1) }},
+          combiner rc={{ combiner_output.rc | default(1) }},
+          combined validation={{ combined_validation_passed | default(false) }},
+          missing={{ diagnostic_missing_artifacts | default([]) }}.
+      when: >-
+        (benchmark_run_rc | int != 0)
+        or not (combined_validation_passed | bool)
+        or (combined_results_fetch is not succeeded)
 
 - name: Release Grid5000 reservations after successful completion
   hosts: grid5000
   gather_facts: false
-  remote_user: oskilbaso
+  remote_user: "{{ grid_user }}"
   tasks:
     - name: Skip reservation cleanup outside Grid5000 mode
       ansible.builtin.meta: end_play

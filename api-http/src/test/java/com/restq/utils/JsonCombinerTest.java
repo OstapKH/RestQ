@@ -5,7 +5,9 @@ import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JsonCombinerTest {
 
@@ -60,11 +62,106 @@ class JsonCombinerTest {
                 () -> JsonCombiner.findExperimentWindow(benchmark));
     }
 
+    @Test
+    void integratesDbAndApiPowerIntoMeasuredRunEnergy() {
+        JSONObject benchmark = benchmark(1, true);
+
+        JSONObject enriched = JsonCombiner.enrichAndValidate(
+                benchmark, powerSeries(10.0, 0, 1, 2, 3, 4), powerSeries(5.0, 0, 1, 2, 3, 4));
+
+        JSONObject energy = measuredRun(enriched).getJSONObject("run_energy");
+        assertEquals(40.0, energy.getJSONObject("db").getDouble("energy_j"), 1e-9);
+        assertEquals(20.0, energy.getJSONObject("api").getDouble("energy_j"), 1e-9);
+        assertEquals(60.0, energy.getJSONObject("combined").getDouble("energy_j"), 1e-9);
+        assertEquals(15.0, energy.getJSONObject("combined").getDouble("mean_power_w"), 1e-9);
+        assertEquals(0.6,
+                energy.getJSONObject("combined").getDouble("joules_per_successful_request"), 1e-9);
+        assertTrue(enriched.getJSONObject("validation").getBoolean("valid"));
+    }
+
+    @Test
+    void rejectsEnergySeriesWithInternalGapOverThreeSeconds() {
+        JSONObject enriched = JsonCombiner.enrichAndValidate(
+                benchmark(1, true), powerSeries(10.0, 0, 4), powerSeries(5.0, 0, 1, 2, 3, 4));
+
+        assertFalse(enriched.getJSONObject("validation").getBoolean("valid"));
+        assertFalse(check(enriched, "DB_ENERGY_COVERAGE").getBoolean("valid"));
+    }
+
+    @Test
+    void rejectsMissingApiEnergy() {
+        JSONObject enriched = JsonCombiner.enrichAndValidate(
+                benchmark(1, true), powerSeries(10.0, 0, 1, 2, 3, 4), new JSONArray());
+
+        assertFalse(enriched.getJSONObject("validation").getBoolean("valid"));
+        assertFalse(check(enriched, "API_ENERGY_COVERAGE").getBoolean("valid"));
+    }
+
+    @Test
+    void rejectsIncompleteMeasuredRuns() {
+        JSONObject enriched = JsonCombiner.enrichAndValidate(
+                benchmark(2, true), powerSeries(10.0, 0, 1, 2, 3, 4), powerSeries(5.0, 0, 1, 2, 3, 4));
+
+        assertFalse(enriched.getJSONObject("validation").getBoolean("valid"));
+        assertFalse(check(enriched, "RUN_COMPLETENESS").getBoolean("valid"));
+    }
+
+    @Test
+    void rejectsFailedClientValidationEvenWithCompleteEnergy() {
+        JSONObject enriched = JsonCombiner.enrichAndValidate(
+                benchmark(1, false), powerSeries(10.0, 0, 1, 2, 3, 4), powerSeries(5.0, 0, 1, 2, 3, 4));
+
+        assertFalse(enriched.getJSONObject("validation").getBoolean("valid"));
+        assertFalse(check(enriched, "CLIENT_VALIDATION").getBoolean("valid"));
+    }
+
     private static JSONObject measurement(long timestamp) {
         return new JSONObject()
                 .put("host", new JSONObject()
                         .put("timestamp", timestamp)
                         .put("consumption", 1_000_000))
                 .put("consumers", new JSONArray());
+    }
+
+    private static JSONObject benchmark(int configuredRuns, boolean clientValid) {
+        JSONObject run = new JSONObject()
+                .put("run_number", 0)
+                .put("start_timestamp", 0L)
+                .put("end_timestamp", 4_000L)
+                .put("successful_requests", 100);
+        JSONObject measured = new JSONObject()
+                .put("warmup", false)
+                .put("runs_configured", configuredRuns)
+                .put("runs", new JSONArray().put(run));
+        return new JSONObject()
+                .put("client_validation", new JSONObject().put("valid", clientValid))
+                .put("experiments", new JSONObject().put("Q01_measured", measured));
+    }
+
+    private static JSONObject measuredRun(JSONObject benchmark) {
+        return benchmark.getJSONObject("experiments").getJSONObject("Q01_measured")
+                .getJSONArray("runs").getJSONObject(0);
+    }
+
+    private static JSONArray powerSeries(double watts, long... seconds) {
+        JSONArray result = new JSONArray();
+        for (long second : seconds) {
+            result.put(new JSONObject()
+                    .put("host", new JSONObject()
+                            .put("timestamp", second)
+                            .put("consumption", watts * 1_000_000))
+                    .put("consumers", new JSONArray()));
+        }
+        return result;
+    }
+
+    private static JSONObject check(JSONObject benchmark, String code) {
+        for (Object value : benchmark.getJSONObject("validation").getJSONArray("checks")) {
+            JSONObject check = (JSONObject) value;
+            if (code.equals(check.getString("code"))) {
+                return check;
+            }
+        }
+        throw new AssertionError("Missing validation check " + code);
     }
 }

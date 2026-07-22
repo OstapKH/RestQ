@@ -365,3 +365,74 @@ def comparison_table_rows(folders, selection):
         }
         rows.append(row)
     return rows
+
+
+def query_energy_map(folder):
+    """TPC-H query map: latency on x, validated run energy per success on y."""
+    summary = folder.query_summary()
+    fig = go.Figure()
+    if summary.empty:
+        return fig
+    custom = summary[["throughput", "db_energy_j", "api_energy_j",
+                      "run_spread_p95_ms"]].to_numpy()
+    fig.add_trace(go.Scatter(
+        x=summary["p95_ms"], y=summary["joules_per_success"],
+        text=summary["query_id"], customdata=custom,
+        mode="markers+text", textposition="top center",
+        marker=dict(size=14, color=summary["combined_energy_j"],
+                    colorscale="Tealgrn", showscale=True,
+                    colorbar=dict(title="total J"), line=dict(width=1, color="#173b36")),
+        hovertemplate=("<b>%{text}</b><br>p95 %{x:.2f} ms"
+                       "<br>%{y:.4f} J/success"
+                       "<br>throughput %{customdata[0]:.2f} req/s"
+                       "<br>DB %{customdata[1]:.2f} J · API %{customdata[2]:.2f} J"
+                       "<br>p95 run spread %{customdata[3]:.2f} ms<extra></extra>"),
+        name="queries",
+    ))
+    fig.update_layout(height=520, xaxis_title="mean p95 latency (ms)",
+                      yaxis_title="combined joules / successful request",
+                      **_LAYOUT_DEFAULTS)
+    return fig
+
+
+def run_stability(folder, query_id):
+    """Per-run latency, throughput and combined energy for one query."""
+    runs = folder.runs[(~folder.runs["is_warmup"])
+                       & (folder.runs["query_id"] == query_id)]
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    if runs.empty:
+        return fig
+    labels = [f"run {int(run) + 1}" for run in runs["run"]]
+    fig.add_trace(go.Bar(x=labels, y=runs["combined_energy_j"],
+                         name="combined energy (J)", marker_color="#0f766e"),
+                  secondary_y=False)
+    fig.add_trace(go.Scatter(x=labels, y=runs["latency_p95_ns"] / 1e6,
+                             name="p95 latency (ms)", mode="lines+markers",
+                             line=dict(color="#d97706", width=3)),
+                  secondary_y=True)
+    fig.add_trace(go.Scatter(x=labels, y=runs["throughput"],
+                             name="throughput (req/s)", mode="lines+markers",
+                             line=dict(color="#1d4ed8", dash="dot")),
+                  secondary_y=True)
+    fig.update_yaxes(title_text="energy (J)", secondary_y=False)
+    fig.update_yaxes(title_text="latency / throughput", secondary_y=True)
+    fig.update_layout(height=390, **_LAYOUT_DEFAULTS)
+    return fig
+
+
+def parameter_latency(folder, query_id):
+    """Request-latency distributions for P1–P5, without energy attribution."""
+    fig = go.Figure()
+    if folder.latencies is None or folder.latencies.empty:
+        return fig
+    rows = folder.latencies[(folder.latencies["query_id"] == query_id)
+                            & (~folder.latencies["is_warmup"])]
+    for index, (parameter_id, group) in enumerate(
+            rows.groupby("parameter_set_id", sort=True)):
+        fig.add_trace(go.Box(
+            y=group["latency_ms"], name=parameter_id, boxpoints="outliers",
+            marker_color=CATEGORICAL[index % len(CATEGORICAL)],
+            hovertemplate="%{fullData.name}<br>%{y:.2f} ms<extra></extra>"))
+    fig.update_layout(height=480, yaxis_title="request latency (ms)",
+                      **_LAYOUT_DEFAULTS)
+    return fig

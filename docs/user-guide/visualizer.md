@@ -49,6 +49,12 @@ All time axes are UTC; hover shows full date and time down to milliseconds.
 
 ## Tabs
 
+### Overview
+The Grid’5000 TPC-H study summary. Each query is positioned by mean p95 latency
+and combined joules per successful request; hover exposes throughput, DB/API
+energy and the spread across its three measured runs. A strict validation badge
+and query table make incomplete results difficult to mistake for valid data.
+
 ### Timeline
 Three stacked panels on a shared time axis: power (W), throughput (req/s),
 and p99 latency (ms). One color pair per folder (db/api); host references in
@@ -67,6 +73,12 @@ caption reports the sampling); every zoom reloads **full resolution** for the
 visible window, including requests that only partially overlap it.
 Double-click to reset.
 
+### Parameters
+Select Q01–Q22 in the top bar to compare the five labelled parameter sets.
+The view shows request-level latency boxes, counts, errors and p50/p95/p99.
+Energy is deliberately absent: Scaphandre is integrated over the entire run,
+so attributing it to one interleaved P1–P5 request would be misleading.
+
 ![Requests view: per-request latency segments of a warmup and a uniform-rate TPC-H experiment, with the pause between them shaded](../images/visualizer-requests.png)
 
 ### Queries
@@ -76,6 +88,11 @@ The `_unattributed` row is backend CPU outside statement execution
 (per-request protocol/session overhead). Respects the experiment selector.
 
 ![Queries view: per-query energy table of a TPC-H run — calls, CPU seconds, joules, and mJ per call for each statement](../images/visualizer-queries.png)
+
+### Validation
+Displays the final energy/completeness verdict, the client validation checks,
+and all stored preflight rows. Green means all required checks passed; an
+invalid or missing report is shown explicitly rather than treated as success.
 
 ### Correlation
 Per-run derived metrics for each folder: energy per request (J/req) bars and

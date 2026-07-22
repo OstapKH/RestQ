@@ -50,6 +50,10 @@ class ExperimentFolder:
     overlays: pd.DataFrame = None      # tidy: target, timestamp_ms, watts
     latencies: pd.DataFrame = None     # tidy: experiment, run, timestamp_ms, latency_ms
     queries: pd.DataFrame = None       # per (experiment, run, query): cpu_s, energy_j
+    validation: dict = field(default_factory=dict)
+    client_validation: dict = field(default_factory=dict)
+    preflight_validation: list = field(default_factory=list)
+    parameter_sets: dict = field(default_factory=dict)
 
     # ------------------------------------------------------------------
     # Loading
@@ -78,6 +82,15 @@ class ExperimentFolder:
 
         self = cls(path=path)
         self.info = self._load_info(path)
+        self.validation = (combined.get("validation")
+                           or combined["benchmark_results"].get("validation")
+                           or {})
+        self.client_validation = (combined["benchmark_results"].get(
+            "client_validation") or {})
+        self.preflight_validation = (combined["benchmark_results"].get(
+            "preflight_validation") or [])
+        self.parameter_sets = (combined["benchmark_results"].get("parameter_sets")
+                               or {})
         self.runs = self._build_runs(combined)
         self.energy = self._build_energy(combined)
         self.overlays = self._build_overlays(path)
@@ -115,8 +128,18 @@ class ExperimentFolder:
                 if end is None and "timestamp" in run:
                     end = run["timestamp"]
                 pct = (run.get("latency_distribution") or {}).get("percentiles", {})
+                first_latency = next(iter(run.get("latencies") or []), {})
+                query_id = first_latency.get("query_id")
+                if query_id is None and exp_id.startswith("Q"):
+                    query_id = exp_id.split("_", 1)[0]
+                responses = run.get("responses") or {}
+                energy = run.get("run_energy") or {}
+                db_energy = energy.get("db") or {}
+                api_energy = energy.get("api") or {}
+                combined_energy = energy.get("combined") or {}
                 rows.append({
                     "experiment": exp_id,
+                    "query_id": query_id,
                     "run": run.get("run_number"),
                     "start_ms": start,
                     "end_ms": end,
@@ -124,11 +147,20 @@ class ExperimentFolder:
                     "goodput": run.get("goodput"),
                     "total_requests": run.get("total_requests"),
                     "successful_requests": run.get("successful_requests"),
+                    "errors": sum(responses.get(key, 0) or 0 for key in
+                                  ("status_4xx", "status_5xx", "status_other",
+                                   "transport_errors")),
                     "latency_p50_ns": pct.get("p50"),
                     "latency_p90_ns": pct.get("p90"),
                     "latency_p95_ns": pct.get("p95"),
                     "latency_p99_ns": pct.get("p99"),
                     "is_warmup": is_warmup,
+                    "db_energy_j": db_energy.get("energy_j"),
+                    "api_energy_j": api_energy.get("energy_j"),
+                    "combined_energy_j": combined_energy.get("energy_j"),
+                    "combined_mean_power_w": combined_energy.get("mean_power_w"),
+                    "joules_per_success": combined_energy.get(
+                        "joules_per_successful_request"),
                 })
         df = pd.DataFrame(rows)
         if not df.empty:
@@ -207,13 +239,89 @@ class ExperimentFolder:
                     rows.append({"experiment": exp_id,
                                  "run": run.get("run_number"),
                                  "timestamp_ms": ts,
-                                 "latency_ms": ns / 1e6})
+                                 "latency_ms": ns / 1e6,
+                                 "query_id": entry.get("query_id"),
+                                 "parameter_set_id": entry.get("parameter_set_id"),
+                                 "status_code": entry.get("status_code"),
+                                 "is_warmup": bool(exp.get(
+                                     "warmup", "warmup" in exp_id.lower()))})
         df = pd.DataFrame(
-            rows, columns=["experiment", "run", "timestamp_ms", "latency_ms"])
+            rows, columns=["experiment", "run", "timestamp_ms", "latency_ms",
+                           "query_id", "parameter_set_id", "status_code",
+                           "is_warmup"])
         if not df.empty:
             df.sort_values("timestamp_ms", inplace=True)
             df.reset_index(drop=True, inplace=True)
         return df
+
+    # ------------------------------------------------------------------
+    # TPC-H study summaries
+    # ------------------------------------------------------------------
+
+    def query_summary(self):
+        """One row per measured query, including run-level energy only."""
+        columns = [
+            "query_id", "experiment", "runs", "p50_ms", "p95_ms", "p99_ms",
+            "throughput", "goodput", "errors", "db_energy_j", "api_energy_j",
+            "combined_energy_j", "mean_power_w", "joules_per_success",
+            "run_spread_p95_ms",
+        ]
+        if self.runs is None or self.runs.empty or "query_id" not in self.runs:
+            return pd.DataFrame(columns=columns)
+        measured = self.runs[(~self.runs["is_warmup"])
+                             & self.runs["query_id"].notna()]
+        rows = []
+        for query_id, group in measured.groupby("query_id", sort=True):
+            p50 = group["latency_p50_ns"] / 1e6
+            p95 = group["latency_p95_ns"] / 1e6
+            p99 = group["latency_p99_ns"] / 1e6
+            total_energy = group["combined_energy_j"].sum(min_count=1)
+            successes = group["successful_requests"].sum(min_count=1)
+            rows.append({
+                "query_id": query_id,
+                "experiment": group["experiment"].iloc[0],
+                "runs": len(group),
+                "p50_ms": p50.mean(),
+                "p95_ms": p95.mean(),
+                "p99_ms": p99.mean(),
+                "throughput": group["throughput"].mean(),
+                "goodput": group["goodput"].mean(),
+                "errors": group["errors"].sum(),
+                "db_energy_j": group["db_energy_j"].sum(min_count=1),
+                "api_energy_j": group["api_energy_j"].sum(min_count=1),
+                "combined_energy_j": total_energy,
+                "mean_power_w": group["combined_mean_power_w"].mean(),
+                "joules_per_success": (total_energy / successes
+                                        if pd.notna(total_energy)
+                                        and pd.notna(successes) and successes else None),
+                "run_spread_p95_ms": p95.max() - p95.min(),
+            })
+        return pd.DataFrame(rows, columns=columns)
+
+    def parameter_summary(self, query_id):
+        """Latency/error summary for P1–P5; energy is not attributable here."""
+        columns = ["query_id", "parameter_set_id", "definition", "count",
+                   "errors", "p50_ms", "p95_ms", "p99_ms"]
+        if self.latencies is None or self.latencies.empty:
+            return pd.DataFrame(columns=columns)
+        rows = self.latencies[(self.latencies["query_id"] == query_id)
+                              & (~self.latencies["is_warmup"])]
+        output = []
+        for parameter_id, group in rows.groupby("parameter_set_id", sort=True):
+            definition = self.parameter_sets.get(parameter_id) or {}
+            status = pd.to_numeric(group["status_code"], errors="coerce")
+            errors = ((status < 200) | (status >= 300) | status.isna()).sum()
+            output.append({
+                "query_id": query_id,
+                "parameter_set_id": parameter_id,
+                "definition": definition.get("path") or definition.get("url") or "",
+                "count": len(group),
+                "errors": int(errors),
+                "p50_ms": group["latency_ms"].quantile(0.50),
+                "p95_ms": group["latency_ms"].quantile(0.95),
+                "p99_ms": group["latency_ms"].quantile(0.99),
+            })
+        return pd.DataFrame(output, columns=columns)
 
     _QUERY_COLUMNS = ["experiment", "run", "queryid", "query", "calls",
                       "cpu_s", "energy_j", "mj_per_call"]

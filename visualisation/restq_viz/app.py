@@ -88,6 +88,169 @@ def _loaded(entries):
     return [get_folder(e["path"]) for e in entries if not e.get("error")]
 
 
+def _data_table(records, columns=None, page_size=25):
+    columns = columns or (list(records[0]) if records else [])
+    return dash_table.DataTable(
+        data=records,
+        columns=[{"name": column.replace("_", " "), "id": column}
+                 for column in columns],
+        style_as_list_view=True,
+        page_size=page_size,
+        style_cell={"fontFamily": "inherit", "padding": "8px 12px",
+                    "textAlign": "left", "maxWidth": "520px",
+                    "overflow": "hidden", "textOverflow": "ellipsis"},
+        style_header={"fontWeight": "700", "textTransform": "uppercase",
+                      "fontSize": "11px", "letterSpacing": "0.08em"})
+
+
+def _study_query_ids(folders):
+    ids = []
+    for folder in folders:
+        summary = folder.query_summary()
+        for query_id in summary.get("query_id", []):
+            if query_id not in ids:
+                ids.append(query_id)
+    return ids
+
+
+def render_tab_content(tab, folders, selection, window_ms, opts, query_id=None):
+    """Pure tab renderer used by the Dash callback and headless UI tests."""
+    if not folders:
+        return html.Div("Add an experiment folder to begin.", className="empty-state")
+    window_ms = int(window_ms) if window_ms else None
+    opts = opts or []
+    show_boundaries = "boundaries" in opts
+
+    if tab == "overview":
+        blocks = []
+        for folder in folders:
+            summary = folder.query_summary()
+            if summary.empty:
+                continue
+            verdict = folder.validation.get("valid")
+            state = "pass" if verdict is True else "fail" if verdict is False else "unknown"
+            blocks.append(html.Section(className="study-panel", children=[
+                html.Div(className="panel-heading", children=[
+                    html.Div([html.P("TPC-H SF1 STUDY", className="eyebrow"),
+                              html.H2(folder.label)]),
+                    html.Div("VALID" if verdict else "INVALID",
+                             className=f"verdict verdict-{state}"),
+                ]),
+                dcc.Graph(figure=figures.query_energy_map(folder),
+                          config={"displaylogo": False}),
+                _data_table(summary.round(4).to_dict("records")),
+            ]))
+        if not blocks:
+            return html.Div("This folder predates query-labelled study results.",
+                            className="empty-state")
+        return html.Div(blocks)
+
+    if tab == "timeline":
+        return dcc.Graph(
+            figure=figures.timeline(folders, selection,
+                                    show_overlays="overlays" in opts,
+                                    window_ms=window_ms,
+                                    dedupe_host="all-hosts" not in opts,
+                                    show_boundaries=show_boundaries),
+            className="graph", config={"displaylogo": False})
+
+    if tab == "requests":
+        if all(folder.latencies is None or folder.latencies.empty for folder in folders):
+            return html.Div("No per-request latency data in the loaded folders.",
+                            className="empty-state")
+        return dcc.Graph(id="requests-graph",
+                         figure=figures.requests(folders, selection,
+                                                 show_boundaries=show_boundaries),
+                         className="graph", config={"displaylogo": False})
+
+    if tab == "parameters":
+        query_ids = _study_query_ids(folders)
+        chosen = query_id if query_id in query_ids else (query_ids[0] if query_ids else None)
+        blocks = []
+        for folder in folders:
+            summary = folder.parameter_summary(chosen) if chosen else pd.DataFrame()
+            if summary.empty:
+                continue
+            blocks.append(html.Section(className="study-panel", children=[
+                html.Div(className="panel-heading", children=[
+                    html.Div([html.P("PARAMETER LENS", className="eyebrow"),
+                              html.H2(f"{folder.label} · {chosen}")]),
+                    html.Span("Energy remains run-level", className="scope-note"),
+                ]),
+                dcc.Graph(figure=figures.run_stability(folder, chosen),
+                          config={"displaylogo": False}),
+                dcc.Graph(figure=figures.parameter_latency(folder, chosen),
+                          config={"displaylogo": False}),
+                _data_table(summary.round(4).to_dict("records")),
+            ]))
+        if not blocks:
+            return html.Div("No labelled parameter-set data in this folder.",
+                            className="empty-state")
+        return html.Div(blocks)
+
+    if tab == "queries":
+        blocks = []
+        for folder in folders:
+            query_rows = folder.queries
+            if query_rows is None or query_rows.empty:
+                continue
+            if selection == ALL_WITHOUT_WARMUP:
+                query_rows = query_rows[~query_rows["experiment"].str.lower().str.contains("warmup")]
+            elif selection != ALL_EXPERIMENTS:
+                query_rows = query_rows[query_rows["experiment"] == selection]
+            if not query_rows.empty:
+                blocks.append(html.Div([html.H3(folder.label), _data_table(
+                    query_rows.sort_values("energy_j", ascending=False).to_dict("records"))]))
+        if not blocks:
+            return html.Div("No per-query database attribution data in the loaded folders.",
+                            className="empty-state")
+        return html.Div(blocks)
+
+    if tab == "validation":
+        blocks = []
+        for folder in folders:
+            final = folder.validation or {}
+            client = folder.client_validation or {}
+            if not final and not client:
+                continue
+            rows = []
+            for layer, report in (("final", final), ("client", client)):
+                for check in report.get("checks", []):
+                    rows.append({"layer": layer, "code": check.get("code"),
+                                 "valid": check.get("valid"),
+                                 "problems": "; ".join(check.get("problems") or [])})
+            valid = final.get("valid", client.get("valid"))
+            blocks.append(html.Section(className="study-panel", children=[
+                html.Div(className="panel-heading", children=[
+                    html.Div([html.P("EVIDENCE GATE", className="eyebrow"),
+                              html.H2(folder.label)]),
+                    html.Div("PASS" if valid else "FAIL",
+                             className=f"verdict verdict-{'pass' if valid else 'fail'}"),
+                ]),
+                _data_table(rows),
+                html.H3("Preflight targets"),
+                (_data_table(folder.preflight_validation)
+                 if folder.preflight_validation else
+                 html.P("No preflight rows stored.", className="scope-note")),
+            ]))
+        if not blocks:
+            return html.Div("No validation report in this legacy folder.",
+                            className="empty-state")
+        return html.Div(blocks)
+
+    if tab == "correlation":
+        return html.Div([html.Div([
+            html.H3(folder.label),
+            dcc.Graph(figure=figures.correlation(folder, selection),
+                      config={"displaylogo": False}),
+        ]) for folder in folders])
+
+    fig = figures.comparison(folders, selection)
+    rows = figures.comparison_table_rows(folders, selection)
+    return html.Div([dcc.Graph(figure=fig, config={"displaylogo": False}),
+                     html.H3("Totals"), _data_table(rows)])
+
+
 def create_app(initial_folders=()):
     app = Dash(__name__, title="RestQ Visualizer",
                suppress_callback_exceptions=True)
@@ -102,7 +265,10 @@ def create_app(initial_folders=()):
 
     app.layout = html.Div(className="app", children=[
         html.Div(className="topbar", children=[
-            html.H1("RestQ Visualizer"),
+            html.Div(className="brand", children=[
+                html.P("RESTQ / EXPERIMENT OBSERVATORY", className="eyebrow"),
+                html.H1("Query performance, with an energy ledger."),
+            ]),
             html.Div(className="controls", children=[
                 html.Button("📂 Add folder…", id="folder-browse",
                             n_clicks=0, className="browse-btn"),
@@ -118,6 +284,9 @@ def create_app(initial_folders=()):
                 dcc.Dropdown(id="experiment-select", clearable=False,
                              value=ALL_EXPERIMENTS,
                              className="experiment-select"),
+                dcc.Dropdown(id="query-select", clearable=False,
+                             placeholder="Study query",
+                             className="query-select"),
                 dcc.Input(id="window-ms", type="number", min=0, step=500,
                           value=0, placeholder="window ms",
                           className="window-ms"),
@@ -134,9 +303,12 @@ def create_app(initial_folders=()):
         ]),
         dcc.Store(id="folders", data=entries),
         dcc.Tabs(id="tabs", value="timeline", className="tabs", children=[
+            dcc.Tab(label="Overview", value="overview"),
             dcc.Tab(label="Timeline", value="timeline"),
             dcc.Tab(label="Requests", value="requests"),
+            dcc.Tab(label="Parameters", value="parameters"),
             dcc.Tab(label="Queries", value="queries"),
+            dcc.Tab(label="Validation", value="validation"),
             dcc.Tab(label="Correlation", value="correlation"),
             dcc.Tab(label="Compare runs", value="compare"),
         ]),
@@ -206,6 +378,16 @@ def create_app(initial_folders=()):
         value = current if current in options else ALL_EXPERIMENTS
         return options, value
 
+    @app.callback(
+        Output("query-select", "options"),
+        Output("query-select", "value"),
+        Input("folders", "data"),
+        State("query-select", "value"))
+    def query_options(entries, current):
+        ids = _study_query_ids(_loaded(entries))
+        value = current if current in ids else (ids[0] if ids else None)
+        return ids, value
+
     # -- tabs ----------------------------------------------------------------
 
     @app.callback(
@@ -214,89 +396,11 @@ def create_app(initial_folders=()):
         Input("folders", "data"),
         Input("experiment-select", "value"),
         Input("window-ms", "value"),
-        Input("display-opts", "value"))
-    def render_tab(tab, entries, selection, window_ms, opts):
-        folders = _loaded(entries)
-        if not folders:
-            return html.Div("Add an experiment folder to begin.",
-                            className="empty-state")
-        window_ms = int(window_ms) if window_ms else None
-        opts = opts or []
-        show_boundaries = "boundaries" in opts
-
-        if tab == "timeline":
-            fig = figures.timeline(folders, selection,
-                                   show_overlays="overlays" in opts,
-                                   window_ms=window_ms,
-                                   dedupe_host="all-hosts" not in opts,
-                                   show_boundaries=show_boundaries)
-            return dcc.Graph(figure=fig, className="graph",
-                             config={"displaylogo": False})
-
-        if tab == "requests":
-            if all(f.latencies is None or f.latencies.empty for f in folders):
-                return html.Div(
-                    "No per-request latency data in the loaded folders.",
-                    className="empty-state")
-            fig = figures.requests(folders, selection,
-                                   show_boundaries=show_boundaries)
-            return dcc.Graph(id="requests-graph", figure=fig,
-                             className="graph",
-                             config={"displaylogo": False})
-
-        if tab == "queries":
-            blocks = []
-            for folder in folders:
-                q = folder.queries
-                if q is None or q.empty:
-                    continue
-                if selection == ALL_WITHOUT_WARMUP:
-                    q = q[~q["experiment"].str.lower().str.contains("warmup")]
-                elif selection != ALL_EXPERIMENTS:
-                    q = q[q["experiment"] == selection]
-                if q.empty:
-                    continue
-                q = q.sort_values("energy_j", ascending=False)
-                table = dash_table.DataTable(
-                    data=q.to_dict("records"),
-                    columns=[{"name": c, "id": c} for c in q.columns],
-                    style_as_list_view=True, page_size=25,
-                    style_cell={"fontFamily": "inherit", "padding": "6px 12px",
-                                "maxWidth": "480px", "overflow": "hidden",
-                                "textOverflow": "ellipsis"},
-                    style_header={"fontWeight": "600"})
-                blocks.append(html.Div([html.H3(folder.label), table]))
-            if not blocks:
-                return html.Div(
-                    "No per-query energy data in the loaded folders "
-                    "(produced by macOS runs with guest sampling).",
-                    className="empty-state")
-            return html.Div(blocks)
-
-        if tab == "correlation":
-            blocks = []
-            for folder in folders:
-                fig = figures.correlation(folder, selection)
-                blocks.append(html.Div([
-                    html.H3(folder.label),
-                    dcc.Graph(figure=fig, config={"displaylogo": False}),
-                ]))
-            return html.Div(blocks)
-
-        # compare
-        fig = figures.comparison(folders, selection)
-        rows = figures.comparison_table_rows(folders, selection)
-        table = dash_table.DataTable(
-            data=rows,
-            columns=[{"name": c, "id": c} for c in rows[0].keys()] if rows else [],
-            style_as_list_view=True,
-            style_cell={"fontFamily": "inherit", "padding": "6px 12px"},
-            style_header={"fontWeight": "600"})
-        return html.Div([
-            dcc.Graph(figure=fig, config={"displaylogo": False}),
-            html.H3("Totals"),
-            table,
-        ])
+        Input("display-opts", "value"),
+        Input("query-select", "value"))
+    def render_tab(tab, entries, selection, window_ms, opts, query_id):
+        return render_tab_content(tab, _loaded(entries), selection,
+                                  window_ms, opts, query_id)
 
     # -- Requests tab: windowed full-resolution reload on zoom ---------------
 

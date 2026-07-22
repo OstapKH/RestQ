@@ -23,7 +23,7 @@ deployment_mode: grid5000 # Options: grid5000, manual, localhost
 When `deployment_mode` is set to `grid5000`, the following parameters are used:
 
 -   `grid_site`: The Grid'5000 site to use (e.g., `lille`).
--   `grid_time`: The reservation time for the Grid'5000 nodes (e.g., `'02:00:00'`).
+-   `grid_time`: The reservation time for the Grid'5000 nodes (the study uses `'02:30:00'`).
 -   `grid_job_poll_interval_s`: Seconds between optimized OAR job-state checks.
 -   `grid_job_wait_timeout_minutes`: Maximum time to wait for a reservation to enter the `Running` state.
 -   `scaphandre_timestep_s`: Timestep in seconds for power monitoring with Scaphandre.
@@ -31,11 +31,11 @@ When `deployment_mode` is set to `grid5000`, the following parameters are used:
 
 ```yaml
 grid_site: lille
-grid_time: '02:00:00'
+grid_time: '02:30:00'
 grid_job_poll_interval_s: 60
 grid_job_wait_timeout_minutes: 60
 scaphandre_timestep_s: 1
-ansible_ssh_private_key_file_g5k: ~/.ssh/grid5000_key
+ansible_ssh_private_key_file_g5k: ~/.ssh/grid5000_key_ubs
 ```
 
 ### Manual Node Configuration
@@ -112,6 +112,8 @@ These parameters control the benchmark workload.
 ```yaml
 benchmark_type: TPCH
 scale_factor: "1.0"
+benchmark_config_file: benchmark-config.xml
+benchmark_parameters_file: parameters.xml
 ```
 
 ## Experiment Tracking
@@ -120,13 +122,25 @@ scale_factor: "1.0"
 -   `timestamp`: A timestamp for the experiment run.
 
 ```yaml
-experiment_duration: '02:00:00'
+experiment_duration: '02:30:00'
 timestamp: "{{ ansible_date_time.iso8601 }}"
 ```
 
 ## Benchmark Execution Configuration
 
-In addition to the Ansible-level configuration, you can fine-tune the benchmark execution for both `TPC-H` and `TPC-C`. This is done via XML files located in `ansible-benchmark/benchmark-config.xml`.
+In addition to the Ansible-level configuration, two XML files under
+`ansible-benchmark/benchmark-config/` define the schedule and labelled request
+targets. `benchmark_config_file` and `benchmark_parameters_file` select which
+pair the one playbook invocation copies to the client. The full pair is
+`benchmark-config.xml` + `parameters.xml`; the short validation pair is
+`benchmark-config-smoke.xml` + `parameters-smoke.xml`.
+
+`<random-seed>5000</random-seed>` makes pacing and the balanced P1–P5 selector
+reproducible. Legacy files without the element also default to 5000. Every
+measured query must have three complete runs, every run must exercise all five
+parameter IDs, and all request status rows must be successful. Energy coverage
+is validated at run level with boundary and maximum-gap checks; it is never
+claimed per individual parameter set.
 
 ### TPC-H Configuration (`benchmark-config.xml`)
 

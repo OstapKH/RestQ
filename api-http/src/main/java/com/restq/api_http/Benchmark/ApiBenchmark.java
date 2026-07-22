@@ -7,6 +7,10 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.*;
@@ -63,8 +67,11 @@ public class ApiBenchmark {
     /** Benchmark type recorded in the results, from $BENCHMARK_TYPE. */
     private static String BENCHMARK_TYPE = System.getenv().getOrDefault("BENCHMARK_TYPE", "TPCH");
 
-    /** Endpoint name to URL list, loaded from the parameters file. */
-    private static Map<String, List<String>> ENDPOINTS;
+    /** Endpoint name to labelled request targets, loaded from the parameters file. */
+    private static Map<String, List<RequestTarget>> ENDPOINTS;
+
+    /** Balances parameter-set selection independently within each endpoint. */
+    private static BalancedParameterSelector parameterSelector;
 
     private static final Random random = new Random();
 
@@ -82,7 +89,24 @@ public class ApiBenchmark {
      * experiment in sequence, and writes all results to one timestamped
      * JSON file.
      */
-    public static void main(String[] args) throws IOException, InterruptedException {
+    public static void main(String[] args) {
+        int exitCode;
+        try {
+            exitCode = run(args);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.error("Benchmark interrupted", e);
+            exitCode = 1;
+        } catch (Exception e) {
+            logger.error("Benchmark failed", e);
+            exitCode = 1;
+        }
+        if (exitCode != 0) {
+            System.exit(exitCode);
+        }
+    }
+
+    static int run(String[] args) throws IOException, InterruptedException {
         try {
 
             logger.info("Starting {} benchmark with API endpoint: {}", BENCHMARK_TYPE, BASE_URL);
@@ -93,18 +117,14 @@ public class ApiBenchmark {
             
             ClassLoader classLoader = ApiBenchmark.class.getClassLoader();
 
-            JAXBContext configContext = JAXBContext.newInstance(BenchmarkConfig.class);
-            Unmarshaller configUnmarshaller = configContext.createUnmarshaller();
             BenchmarkConfig benchmarkConfig;
             try (InputStream configIn = openConfig("BENCHMARK_CONFIG", CONFIG_FILE, classLoader)) {
-                benchmarkConfig = (BenchmarkConfig) configUnmarshaller.unmarshal(configIn);
+                benchmarkConfig = parseBenchmarkConfig(configIn);
             }
 
-            JAXBContext parametersContext = JAXBContext.newInstance(ParametersConfig.class);
-            Unmarshaller parametersUnmarshaller = parametersContext.createUnmarshaller();
             ParametersConfig parametersConfig;
             try (InputStream paramsIn = openConfig("BENCHMARK_PARAMETERS", PARAMETERS_FILE, classLoader)) {
-                parametersConfig = (ParametersConfig) parametersUnmarshaller.unmarshal(paramsIn);
+                parametersConfig = parseParameters(paramsIn);
             }
             
             allResults.put("timestamp", timestamp);
@@ -112,25 +132,28 @@ public class ApiBenchmark {
             allResults.put("config_file", CONFIG_FILE);
             allResults.put("parameters_file", PARAMETERS_FILE);
             allResults.put("base_url", BASE_URL);
+            allResults.put("validation_profile", benchmarkConfig.getValidationProfile());
             allResults.put("pauseBetweenExperiments_ms", benchmarkConfig.getPauseBetweenExperiments());
             
             ObjectNode endpointsNode = allResults.putObject("endpoints");
             for (ParameterEndpointConfig paramEndpoint : parametersConfig.getEndpoints()) {
                 ArrayNode urlsArray = endpointsNode.putArray(paramEndpoint.getName());
-                for (String url : paramEndpoint.getUrls()) {
-                    urlsArray.add(url);
+                for (ParameterUrlConfig url : paramEndpoint.getUrls()) {
+                    urlsArray.add(url.getPath());
                 }
             }
-            
-            ENDPOINTS = new HashMap<>();
-            for (ParameterEndpointConfig paramEndpoint : parametersConfig.getEndpoints()) {
-                ENDPOINTS.put(paramEndpoint.getName(), paramEndpoint.getUrls());
-            }
+
+            ENDPOINTS = buildTargetCatalog(parametersConfig);
+            random.setSeed(benchmarkConfig.getRandomSeed());
+            parameterSelector = new BalancedParameterSelector(ENDPOINTS, benchmarkConfig.getRandomSeed());
+            addParameterSets(allResults, ENDPOINTS, BASE_URL);
             
             ObjectNode globalConfigNode = allResults.putObject("global_config");
             globalConfigNode.put("pauseBetweenExperiments_ms", benchmarkConfig.getPauseBetweenExperiments());
 
-            preflightValidation(benchmarkConfig);
+            if (!preflightValidation(benchmarkConfig)) {
+                return 2;
+            }
 
             ObjectNode experimentsNode = allResults.putObject("experiments");
 
@@ -161,11 +184,51 @@ public class ApiBenchmark {
                 }
             }
             
-            mapper.writeValue(new File(resultFileName), allResults);
-            logger.info("All experiments completed. Results saved to {}", resultFileName);
+            int exitCode = validateClientResults(allResults);
+            persistResults();
+            if (exitCode == 0) {
+                logger.info("All experiments completed and validated. Results saved to {}", resultFileName);
+            } else {
+                logger.error("Client validation failed. Results saved to {}", resultFileName);
+            }
+            return exitCode;
             
-        } catch (JAXBException e) {
+        } catch (IllegalArgumentException e) {
             logger.error("Error parsing XML configuration: {}", e.getMessage(), e);
+            return 1;
+        }
+    }
+
+    /** Attaches the client validation report and returns its process status. */
+    static int validateClientResults(ObjectNode results) {
+        BenchmarkValidation.ValidationResult validation = BenchmarkValidation.validateClient(results);
+        results.set("client_validation", validation.report());
+        return validation.valid() ? 0 : 3;
+    }
+
+    /** Persists the current partial or final benchmark result document. */
+    private static void persistResults() throws IOException {
+        persistResults(mapper, allResults, Path.of(resultFileName));
+    }
+
+    /** Writes a complete sibling snapshot before replacing the destination. */
+    static void persistResults(ObjectMapper objectMapper, ObjectNode results, Path destination)
+            throws IOException {
+        Path absoluteDestination = destination.toAbsolutePath();
+        Path directory = absoluteDestination.getParent();
+        Files.createDirectories(directory);
+        Path temporary = Files.createTempFile(directory,
+                "." + absoluteDestination.getFileName() + ".", ".tmp");
+        try {
+            objectMapper.writeValue(temporary.toFile(), results);
+            try {
+                Files.move(temporary, absoluteDestination,
+                        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(temporary, absoluteDestination, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
         }
     }
     
@@ -185,13 +248,111 @@ public class ApiBenchmark {
         return cl.getResourceAsStream(classpathName);
     }
 
+    /** Parses and validates the labelled endpoint parameter catalog. */
+    static ParametersConfig parseParameters(InputStream in) {
+        Objects.requireNonNull(in, "parameter input must not be null");
+        try {
+            JAXBContext context = JAXBContext.newInstance(ParametersConfig.class);
+            ParametersConfig config = (ParametersConfig) context.createUnmarshaller().unmarshal(in);
+            buildTargetCatalog(config);
+            return config;
+        } catch (JAXBException e) {
+            throw new IllegalArgumentException("Invalid parameters XML", e);
+        }
+    }
+
+    /** Parses the experiment schedule, including its reproducible random seed. */
+    static BenchmarkConfig parseBenchmarkConfig(InputStream in) {
+        Objects.requireNonNull(in, "benchmark config input must not be null");
+        try {
+            JAXBContext context = JAXBContext.newInstance(BenchmarkConfig.class);
+            return (BenchmarkConfig) context.createUnmarshaller().unmarshal(in);
+        } catch (JAXBException e) {
+            throw new IllegalArgumentException("Invalid benchmark configuration XML", e);
+        }
+    }
+
+    /**
+     * Converts JAXB configuration into immutable request targets. Missing
+     * query and parameter-set IDs are generated from their one-based XML
+     * positions so legacy files remain reproducible.
+     */
+    static Map<String, List<RequestTarget>> buildTargetCatalog(ParametersConfig config) {
+        Objects.requireNonNull(config, "parameters config must not be null");
+        List<ParameterEndpointConfig> endpoints = Objects.requireNonNull(
+                config.getEndpoints(), "parameters must contain endpoints");
+        Map<String, List<RequestTarget>> catalog = new LinkedHashMap<>();
+        Set<String> queryIds = new HashSet<>();
+        Set<String> parameterSetIds = new HashSet<>();
+
+        for (int endpointIndex = 0; endpointIndex < endpoints.size(); endpointIndex++) {
+            ParameterEndpointConfig endpoint = Objects.requireNonNull(
+                    endpoints.get(endpointIndex), "endpoint must not be null");
+            String endpointName = requireNonBlank(endpoint.getName(), "endpoint name");
+            String queryId = endpoint.getQueryId();
+            if (queryId == null || queryId.isBlank()) {
+                queryId = "Q%02d".formatted(endpointIndex + 1);
+            } else {
+                queryId = queryId.strip();
+            }
+            if (!queryIds.add(queryId)) {
+                throw new IllegalArgumentException("Duplicate query ID: " + queryId);
+            }
+
+            List<ParameterUrlConfig> urls = Objects.requireNonNull(
+                    endpoint.getUrls(), "endpoint URLs must not be null for " + endpointName);
+            List<RequestTarget> targets = new ArrayList<>(urls.size());
+            for (int urlIndex = 0; urlIndex < urls.size(); urlIndex++) {
+                ParameterUrlConfig url = Objects.requireNonNull(
+                        urls.get(urlIndex), "URL must not be null for " + endpointName);
+                String path = requireNonBlank(url.getPath(), "URL path");
+                String parameterSetId = url.getId();
+                if (parameterSetId == null || parameterSetId.isBlank()) {
+                    parameterSetId = queryId + "-P" + (urlIndex + 1);
+                } else {
+                    parameterSetId = parameterSetId.strip();
+                }
+                if (!parameterSetIds.add(parameterSetId)) {
+                    throw new IllegalArgumentException("Duplicate parameter-set ID: " + parameterSetId);
+                }
+                targets.add(new RequestTarget(queryId, parameterSetId, path));
+            }
+            if (catalog.putIfAbsent(endpointName, List.copyOf(targets)) != null) {
+                throw new IllegalArgumentException("Duplicate endpoint name: " + endpointName);
+            }
+        }
+        return Collections.unmodifiableMap(catalog);
+    }
+
+    private static String requireNonBlank(String value, String fieldName) {
+        Objects.requireNonNull(value, fieldName + " must not be null");
+        if (value.isBlank()) {
+            throw new IllegalArgumentException(fieldName + " must not be blank");
+        }
+        return value.strip();
+    }
+
+    /** Adds the de-duplicated parameter metadata referenced by result rows. */
+    static void addParameterSets(ObjectNode root, Map<String, List<RequestTarget>> catalog,
+                                 String baseUrl) {
+        ObjectNode parameterSets = root.putObject("parameter_sets");
+        for (Map.Entry<String, List<RequestTarget>> endpoint : catalog.entrySet()) {
+            for (RequestTarget target : endpoint.getValue()) {
+                ObjectNode parameterSet = parameterSets.putObject(target.parameterSetId());
+                parameterSet.put("query_id", target.queryId());
+                parameterSet.put("endpoint", endpoint.getKey());
+                parameterSet.put("url", baseUrl + target.path());
+            }
+        }
+    }
+
     /**
      * Fire every endpoint URL referenced (probability > 0) by any experiment
      * once, before the schedule starts. A benchmark against endpoints that
      * error or return empty result sets measures nothing — abort instead.
      * The report is embedded in the results JSON either way.
      */
-    private static void preflightValidation(BenchmarkConfig benchmarkConfig) throws IOException {
+    private static boolean preflightValidation(BenchmarkConfig benchmarkConfig) throws IOException {
         Set<String> usedEndpoints = new LinkedHashSet<>();
         for (ExperimentConfig experiment : benchmarkConfig.getExperiments()) {
             for (Map.Entry<String, Double> e : experiment.getProbabilitiesMap().entrySet()) {
@@ -205,16 +366,20 @@ public class ApiBenchmark {
         boolean allOk = true;
         try (CloseableHttpClient client = HttpClients.createDefault()) {
             for (String name : usedEndpoints) {
-                List<String> urls = ENDPOINTS.getOrDefault(name, List.of());
-                if (urls.isEmpty()) {
+                List<RequestTarget> targets = ENDPOINTS.getOrDefault(name, List.of());
+                if (targets.isEmpty()) {
                     allOk = false;
                     report.addObject().put("endpoint", name)
                           .put("ok", false).put("problem", "no URLs in parameters file");
                     continue;
                 }
-                for (String url : urls) {
+                for (RequestTarget target : targets) {
+                    String url = target.path();
                     ObjectNode row = report.addObject();
-                    row.put("endpoint", name).put("url", url);
+                    row.put("endpoint", name)
+                            .put("query_id", target.queryId())
+                            .put("parameter_set_id", target.parameterSetId())
+                            .put("url", url);
                     try (CloseableHttpResponse response = client.execute(new HttpGet(BASE_URL + url))) {
                         int status = response.getCode();
                         String body = response.getEntity() != null
@@ -240,13 +405,14 @@ public class ApiBenchmark {
             }
         }
         allResults.put("preflight_passed", allOk);
+        persistResults();
         if (!allOk) {
-            mapper.writeValue(new File(resultFileName), allResults);
             logger.error("Preflight validation failed — aborting benchmark. Report in {}", resultFileName);
-            System.exit(2);
+            return false;
         }
         logger.info("Preflight validation passed: {} endpoint URL(s) return non-empty 2xx responses",
                 report.size());
+        return true;
     }
 
     /**
@@ -266,7 +432,7 @@ public class ApiBenchmark {
             List<Future<ClientTaskResult>> futures = new ArrayList<>();
             List<TimestampedLatency> allLatencies = new ArrayList<>();
 
-            List<BlockingQueue<String>> connectionQueues = new ArrayList<>();
+            List<BlockingQueue<RequestTarget>> connectionQueues = new ArrayList<>();
             for (int i = 0; i < experiment.getConnections(); i++) {
                 connectionQueues.add(new LinkedBlockingQueue<>());
             }
@@ -308,6 +474,7 @@ public class ApiBenchmark {
             allLatencies.sort(Comparator.comparing(TimestampedLatency::getTimestamp));
 
             List<Long> orderedLatencyValues = allLatencies.stream()
+                .filter(latency -> latency.getLatency() >= 0)
                 .map(TimestampedLatency::getLatency)
                 .collect(Collectors.toList());
 
@@ -350,7 +517,7 @@ public class ApiBenchmark {
      * time instead of bursting. The mode is recorded in the results JSON so
      * runs stay interpretable.
      */
-    private static void produceRequests(ExperimentConfig experiment, BlockingQueue<String> queue,
+    private static void produceRequests(ExperimentConfig experiment, BlockingQueue<RequestTarget> queue,
                                         long endTimestamp, int connectionIndex) {
         String pacing = experiment.getPacing();
         try {
@@ -358,7 +525,7 @@ public class ApiBenchmark {
                 while (System.currentTimeMillis() < endTimestamp) {
                     long startTime = System.currentTimeMillis();
                     for (int j = 0; j < experiment.getRequestsPerSecond(); j++) {
-                        queue.put(chooseEndpoint(experiment.getProbabilitiesMap()));
+                        queue.put(chooseTarget(experiment.getProbabilitiesMap()));
                     }
                     long elapsedTime = System.currentTimeMillis() - startTime;
                     if (elapsedTime < 1000) {
@@ -374,7 +541,7 @@ public class ApiBenchmark {
             boolean poisson = "poisson".equals(pacing);
             long nextNs = System.nanoTime();
             while (System.currentTimeMillis() < endTimestamp) {
-                queue.put(chooseEndpoint(experiment.getProbabilitiesMap()));
+                queue.put(chooseTarget(experiment.getProbabilitiesMap()));
                 nextNs += poisson
                         ? (long) (-Math.log(1.0 - random.nextDouble()) * meanIntervalNs)
                         : (long) meanIntervalNs;
@@ -398,12 +565,12 @@ public class ApiBenchmark {
     private static class ClientTask implements Callable<ClientTaskResult> {
         private final ExperimentConfig experiment;
         private final CloseableHttpClient httpClient;
-        private final BlockingQueue<String> queue;
+        private final BlockingQueue<RequestTarget> queue;
         private final long endTimestamp;
         private int successfulRequests = 0;
         private final String threadName;
 
-        public ClientTask(ExperimentConfig experiment, BlockingQueue<String> queue, long endTimestamp) {
+        public ClientTask(ExperimentConfig experiment, BlockingQueue<RequestTarget> queue, long endTimestamp) {
             this.experiment = experiment;
             this.queue = queue;
             this.endTimestamp = endTimestamp;
@@ -427,21 +594,20 @@ public class ApiBenchmark {
             ResponseCounts counts = new ResponseCounts();
             try {
                 while (System.currentTimeMillis() < endTimestamp) {
-                    String endpoint = queue.poll(100, TimeUnit.MILLISECONDS);
-                    if (endpoint != null) {
+                    RequestTarget target = queue.poll(100, TimeUnit.MILLISECONDS);
+                    if (target != null) {
                         try {
-                            HttpGet request = new HttpGet(BASE_URL + endpoint);
-                            TimestampedLatency result = sendRequest(request);
+                            HttpGet request = new HttpGet(BASE_URL + target.path());
+                            TimestampedLatency result = sendRequest(request, target);
                             counts.record(result.getStatusCode());
-                            if (result.getLatency() >= 0) {
-                                latencies.add(result);
-                                if (result.isSuccess()) {
-                                    successfulRequests++;
-                                }
+                            latencies.add(result);
+                            if (result.isSuccess()) {
+                                successfulRequests++;
                             }
                         } catch (Exception e) {
                             counts.record(-1);
-                            logger.error("Error making request for endpoint: {}", endpoint, e);
+                            addTransportFailure(latencies, target, System.currentTimeMillis());
+                            logger.error("Error making request for endpoint: {}", target.path(), e);
                         }
                     }
                 }
@@ -458,14 +624,14 @@ public class ApiBenchmark {
             return new ClientTaskResult(latencies, successfulRequests, counts);
         }
 
-        private TimestampedLatency sendRequest(HttpGet request) {
+        private TimestampedLatency sendRequest(HttpGet request, RequestTarget target) {
             long requestTimestamp = System.currentTimeMillis();
             long start = System.nanoTime();
 
             try (CloseableHttpResponse response = httpClient.execute(request)) {
                 int status = response.getCode();
                 EntityUtils.consume(response.getEntity());
-                return new TimestampedLatency(requestTimestamp, System.nanoTime() - start, status);
+                return new TimestampedLatency(requestTimestamp, System.nanoTime() - start, status, target);
             } catch (NoHttpResponseException e) {
                 logger.error("NoHttpResponseException: The server did not respond. Details:");
                 logger.error("Request: {}", request.toString());
@@ -477,12 +643,18 @@ public class ApiBenchmark {
                 e.printStackTrace();
             }
 
-            return new TimestampedLatency(requestTimestamp, -1, -1);
+            return new TimestampedLatency(requestTimestamp, -1, -1, target);
         }
     }
 
+    /** Records a transport failure that occurred before sendRequest could return. */
+    static void addTransportFailure(List<TimestampedLatency> latencies, RequestTarget target,
+                                    long timestamp) {
+        latencies.add(new TimestampedLatency(timestamp, -1, -1, target));
+    }
+
     /** One request's latency sample, tied to the moment the request was made. */
-    private static class TimestampedLatency {
+    static class TimestampedLatency {
         /** Epoch milliseconds at which the request was made. */
         private final long timestamp;
 
@@ -492,10 +664,14 @@ public class ApiBenchmark {
         /** HTTP status code; -1 denotes a transport error. */
         private final int statusCode;
 
-        public TimestampedLatency(long timestamp, long latency, int statusCode) {
+        /** Labelled request target used for this sample. */
+        private final RequestTarget target;
+
+        TimestampedLatency(long timestamp, long latency, int statusCode, RequestTarget target) {
             this.timestamp = timestamp;
             this.latency = latency;
             this.statusCode = statusCode;
+            this.target = Objects.requireNonNull(target, "target must not be null");
         }
 
         public long getTimestamp() {
@@ -508,6 +684,10 @@ public class ApiBenchmark {
 
         public int getStatusCode() {
             return statusCode;
+        }
+
+        public RequestTarget getTarget() {
+            return target;
         }
 
         public boolean isSuccess() {
@@ -563,24 +743,24 @@ public class ApiBenchmark {
     }
 
     /**
-     * Picks an endpoint by cumulative probability and returns a random URL
-     * from its list. Falls back to the first URL of the first endpoint when
-     * no entry matches.
+     * Picks an endpoint by cumulative probability, then asks the balanced
+     * selector for that endpoint's next labelled target. Falls back to the
+     * first configured endpoint when no probability entry matches.
      */
-    private static String chooseEndpoint(Map<String, Double> probabilities) {
+    private static RequestTarget chooseTarget(Map<String, Double> probabilities) {
         double rand = random.nextDouble();
         double cumulative = 0.0;
         for (Map.Entry<String, Double> entry : probabilities.entrySet()) {
             cumulative += entry.getValue();
             if (rand <= cumulative) {
-                List<String> urls = ENDPOINTS.get(entry.getKey());
-                if (urls != null && !urls.isEmpty()) {
-                    return urls.get(random.nextInt(urls.size()));
+                List<RequestTarget> targets = ENDPOINTS.get(entry.getKey());
+                if (targets != null && !targets.isEmpty()) {
+                    return parameterSelector.next(entry.getKey());
                 }
             }
         }
-        List<String> fallbackUrls = ENDPOINTS.values().iterator().next();
-        return fallbackUrls.get(0);
+        String fallbackEndpoint = ENDPOINTS.keySet().iterator().next();
+        return parameterSelector.next(fallbackEndpoint);
     }
 
     /**
@@ -607,29 +787,12 @@ public class ApiBenchmark {
         
         runNode.put("experiment_name", experiment.getExperimentName());
 
-        ArrayNode latenciesArray = runNode.putArray("latencies");
-        for (TimestampedLatency latency : allLatencies) {
-            ObjectNode latencyNode = latenciesArray.addObject();
-            latencyNode.put("timestamp", latency.getTimestamp());
-            latencyNode.put("latency_ns", latency.getLatency());
-        }
+        addRequestResults(runNode, allLatencies);
         
-        List<Long> sortedLatencies = latencyValues.stream().sorted().collect(Collectors.toList());
         ObjectNode latencyNode = runNode.putObject("latency_distribution");
-        if (!sortedLatencies.isEmpty()) {
-            latencyNode.put("median_latency_ns", median(sortedLatencies));
-            latencyNode.put("min_latency_ns", sortedLatencies.get(0));
-            latencyNode.put("max_latency_ns", sortedLatencies.get(sortedLatencies.size() - 1));
-
-            ObjectNode percentileNode = latencyNode.putObject("percentiles");
-            addPercentile(sortedLatencies, 25, percentileNode);
-            addPercentile(sortedLatencies, 75, percentileNode);
-            addPercentile(sortedLatencies, 90, percentileNode);
-            addPercentile(sortedLatencies, 95, percentileNode);
-            addPercentile(sortedLatencies, 99, percentileNode);
-        }
+        addLatencyDistribution(latencyNode, latencyValues);
         
-        long totalRequests = latencyValues.size();
+        long totalRequests = allLatencies.size();
         double elapsedTimeInSeconds = (endTimestamp - startTimestamp) / 1000.0;
         double throughput = totalRequests / elapsedTimeInSeconds;
         runNode.put("throughput", throughput);
@@ -640,16 +803,73 @@ public class ApiBenchmark {
         runNode.put("successful_requests", totalSuccessfulRequests);
 
         ObjectNode responsesNode = runNode.putObject("responses");
-        responsesNode.put("status_2xx", counts.ok2xx);
-        responsesNode.put("status_4xx", counts.err4xx);
-        responsesNode.put("status_5xx", counts.err5xx);
-        responsesNode.put("status_other", counts.otherStatus);
-        responsesNode.put("transport_errors", counts.transportErrors);
+        addResponseCounts(responsesNode, counts);
 
         runsArray.add(runNode);
 
-        mapper.writeValue(new File(resultFileName), allResults);
+        persistResults();
         logger.info("Updated results for experiment: {}, run: {}", experiment.getExperimentName(), run);
+    }
+
+    /** Adds request rows and per-parameter aggregates to one run result. */
+    static void addRequestResults(ObjectNode runNode, List<TimestampedLatency> allLatencies) {
+        ArrayNode latenciesArray = runNode.putArray("latencies");
+        Map<String, List<TimestampedLatency>> byParameterSet = new LinkedHashMap<>();
+        for (TimestampedLatency latency : allLatencies) {
+            RequestTarget target = latency.getTarget();
+            ObjectNode latencyNode = latenciesArray.addObject();
+            latencyNode.put("timestamp", latency.getTimestamp());
+            latencyNode.put("latency_ns", latency.getLatency());
+            latencyNode.put("query_id", target.queryId());
+            latencyNode.put("parameter_set_id", target.parameterSetId());
+            latencyNode.put("status_code", latency.getStatusCode());
+            byParameterSet.computeIfAbsent(target.parameterSetId(), ignored -> new ArrayList<>())
+                    .add(latency);
+        }
+
+        ObjectNode parameterResults = runNode.putObject("parameter_results");
+        for (Map.Entry<String, List<TimestampedLatency>> entry : byParameterSet.entrySet()) {
+            List<TimestampedLatency> samples = entry.getValue();
+            ObjectNode result = parameterResults.putObject(entry.getKey());
+            result.put("query_id", samples.getFirst().getTarget().queryId());
+            result.put("count", samples.size());
+
+            ResponseCounts counts = new ResponseCounts();
+            List<Long> latencies = new ArrayList<>();
+            for (TimestampedLatency sample : samples) {
+                counts.record(sample.getStatusCode());
+                if (sample.getLatency() >= 0) {
+                    latencies.add(sample.getLatency());
+                }
+            }
+            addResponseCounts(result.putObject("responses"), counts);
+            addLatencyDistribution(result.putObject("latency_distribution"), latencies);
+        }
+    }
+
+    private static void addResponseCounts(ObjectNode node, ResponseCounts counts) {
+        node.put("status_2xx", counts.ok2xx);
+        node.put("status_4xx", counts.err4xx);
+        node.put("status_5xx", counts.err5xx);
+        node.put("status_other", counts.otherStatus);
+        node.put("transport_errors", counts.transportErrors);
+    }
+
+    private static void addLatencyDistribution(ObjectNode node, List<Long> latencyValues) {
+        List<Long> sortedLatencies = latencyValues.stream().sorted().toList();
+        if (sortedLatencies.isEmpty()) {
+            return;
+        }
+        node.put("median_latency_ns", median(sortedLatencies));
+        node.put("min_latency_ns", sortedLatencies.getFirst());
+        node.put("max_latency_ns", sortedLatencies.getLast());
+        ObjectNode percentiles = node.putObject("percentiles");
+        addPercentile(sortedLatencies, 25, percentiles);
+        addPercentile(sortedLatencies, 50, percentiles);
+        addPercentile(sortedLatencies, 75, percentiles);
+        addPercentile(sortedLatencies, 90, percentiles);
+        addPercentile(sortedLatencies, 95, percentiles);
+        addPercentile(sortedLatencies, 99, percentiles);
     }
 
     private static void addPercentile(List<Long> latencies, int percentile, ObjectNode node) {
@@ -757,6 +977,12 @@ public class ApiBenchmark {
     public static class BenchmarkConfig {
         @XmlElement(name = "pauseBetweenExperiments-ms")
         private int pauseBetweenExperiments;
+
+        @XmlElement(name = "random-seed")
+        private Long randomSeed;
+
+        @XmlElement(name = "validation-profile")
+        private String validationProfile;
         
         @XmlElementWrapper(name = "endpoints")
         @XmlElement(name = "endpoint")
@@ -767,6 +993,15 @@ public class ApiBenchmark {
 
         public int getPauseBetweenExperiments() {
             return pauseBetweenExperiments;
+        }
+
+        public long getRandomSeed() {
+            return randomSeed == null ? 5000L : randomSeed;
+        }
+
+        public String getValidationProfile() {
+            return validationProfile == null || validationProfile.isBlank()
+                    ? "full" : validationProfile.strip().toLowerCase();
         }
 
         public List<EndpointConfig> getEndpoints() {
@@ -903,16 +1138,40 @@ public class ApiBenchmark {
     public static class ParameterEndpointConfig {
         @XmlAttribute(name = "name")
         private String name;
-        
+
+        @XmlAttribute(name = "query-id")
+        private String queryId;
+
         @XmlElement(name = "url")
-        private List<String> urls;
+        private List<ParameterUrlConfig> urls;
 
         public String getName() {
             return name;
         }
 
-        public List<String> getUrls() {
+        public String getQueryId() {
+            return queryId;
+        }
+
+        public List<ParameterUrlConfig> getUrls() {
             return urls;
+        }
+    }
+
+    @XmlAccessorType(XmlAccessType.FIELD)
+    public static class ParameterUrlConfig {
+        @XmlAttribute(name = "id")
+        private String id;
+
+        @XmlValue
+        private String path;
+
+        public String getId() {
+            return id;
+        }
+
+        public String getPath() {
+            return path;
         }
     }
 }
