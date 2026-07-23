@@ -24,12 +24,37 @@
       set_fact:
         timestamp: "{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
 
-    - name: Propagate the run timestamp to every inventory host
+    - name: Validate source mode
+      assert:
+        that:
+          - source_mode in ['github', 'local_archive']
+        fail_msg: "source_mode must be github or local_archive; received {{ source_mode }}"
+
+    - name: Set local archive paths
       set_fact:
-        timestamp: "{{ hostvars['localhost'].timestamp }}"
-      delegate_to: "{{ item }}"
-      delegate_facts: true
-      loop: "{{ groups['all'] }}"
+        source_archive_path: "/tmp/restq-source-{{ timestamp }}.tar.gz"
+        source_archive_remote_path: "/root/restq-source-{{ timestamp }}.tar.gz"
+      when: source_mode == 'local_archive'
+
+    - name: Create local RestQ source archive
+      command: >-
+        tar --exclude=.git --exclude='*/target' --exclude=.m2
+        --exclude=.gradle --exclude=node_modules --exclude='.env*'
+        --exclude='Results*' --exclude='.DS_Store'
+        -czf {{ source_archive_path }} -C {{ playbook_dir }}/../.. .
+      when: source_mode == 'local_archive'
+
+    - name: Calculate local RestQ source archive checksum
+      command: "sha256sum {{ source_archive_path }}"
+      register: source_archive_checksum
+      changed_when: false
+      when: source_mode == 'local_archive'
+
+    - name: Record local RestQ source archive provenance
+      set_fact:
+        source_archive_sha256: "{{ source_archive_checksum.stdout.split()[0] }}"
+        source_archive_filename: "{{ source_archive_path | basename }}"
+      when: source_mode == 'local_archive'
 
 - name: Initialize grid 5000
   hosts: grid5000
@@ -237,6 +262,143 @@
       delay: 10  # Check every 10 seconds
       loop: "{{ deploy_async_results.results }}"
 
+- name: Propagate run timestamp after node resolution
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Share the controller timestamp with all experiment hosts
+      set_fact:
+        timestamp: "{{ hostvars['localhost'].timestamp }}"
+      delegate_to: "{{ item }}"
+      delegate_facts: true
+      loop:
+        - grid5000
+        - node1
+        - node2
+        - node3
+
+- name: Prepare private Lille cache
+  hosts: grid5000
+  gather_facts: false
+  remote_user: "{{ grid_user }}"
+  tasks:
+    - name: Skip persistent cache outside Lille Grid5000 runs
+      ansible.builtin.meta: end_play
+      when: >-
+        deployment_mode != 'grid5000' or
+        grid_site != grid5000_cache.site or
+        not (grid5000_cache.enabled | bool)
+
+    - name: Prepare private Lille cache
+      file:
+        path: "{{ grid5000_cache.frontend_path }}"
+        state: directory
+        mode: '0700'
+
+    - name: Prepare controller cache staging directory
+      file:
+        path: "{{ grid5000_cache.controller_path }}"
+        state: directory
+        mode: '0700'
+      delegate_to: localhost
+
+- name: Bootstrap experiment nodes in parallel
+  hosts: node1:node2:node3
+  remote_user: root
+  strategy: free
+  tasks:
+    - name: Transfer local RestQ source archive to experiment node
+      copy:
+        src: "{{ hostvars['localhost'].source_archive_path }}"
+        dest: "{{ hostvars['localhost'].source_archive_remote_path }}"
+        mode: '0600'
+      when: source_mode == 'local_archive'
+
+    - name: Write local source archive checksum manifest
+      copy:
+        content: >-
+          {{ hostvars['localhost'].source_archive_sha256 }}  {{ hostvars['localhost'].source_archive_remote_path }}\n
+        dest: "{{ hostvars['localhost'].source_archive_remote_path }}.sha256"
+        mode: '0600'
+      when: source_mode == 'local_archive'
+
+    - name: Verify local source archive checksum
+      command: "sha256sum --check {{ hostvars['localhost'].source_archive_remote_path }}.sha256"
+      changed_when: false
+      when: source_mode == 'local_archive'
+
+    - name: Remove previous local source directory on experiment node
+      file:
+        path: "{{ project_directory }}"
+        state: absent
+      when: source_mode == 'local_archive'
+
+    - name: Create local source directory on experiment node
+      file:
+        path: "{{ project_directory }}"
+        state: directory
+        mode: '0755'
+      when: source_mode == 'local_archive'
+
+    - name: Materialize local RestQ source archive
+      unarchive:
+        src: "{{ hostvars['localhost'].source_archive_remote_path }}"
+        dest: "{{ project_directory }}"
+        remote_src: true
+      when: source_mode == 'local_archive'
+
+    - name: Configure the OVH Ubuntu mirror
+      replace:
+        path: /etc/apt/sources.list
+        regexp: 'https?://[^[:space:]]+/ubuntu'
+        replace: "{{ ubuntu_apt_mirror }}"
+      when: deployment_mode == 'grid5000'
+
+    - name: Refresh apt indexes from the configured mirror
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: deployment_mode == 'grid5000'
+
+    - name: Install shared experiment prerequisites
+      apt:
+        name:
+          - wget
+          - ca-certificates
+          - apt-transport-https
+          - gnupg-agent
+          - software-properties-common
+          - git
+          - docker.io
+          - docker-compose
+          - maven
+          - unzip
+        state: present
+        install_recommends: false
+      when: deployment_mode == 'grid5000'
+
+    - name: Download Java 23 during shared bootstrap
+      get_url:
+        url: https://download.oracle.com/java/23/archive/jdk-23_linux-x64_bin.deb
+        dest: /root/jdk-23_linux-x64_bin.deb
+        mode: '0644'
+      when: deployment_mode == 'grid5000'
+
+    - name: Install Java 23 during shared bootstrap
+      apt:
+        deb: /root/jdk-23_linux-x64_bin.deb
+      when: deployment_mode == 'grid5000'
+
+    - name: Clone RestQFramework repository during shared bootstrap
+      git:
+        repo: "{{ github_repo_url }}"
+        dest: "{{ project_directory }}"
+        recursive: true
+        update: no
+      when:
+        - deployment_mode == 'grid5000'
+        - source_mode == 'github'
+
 - name: Setup Node 1 (Database Server)
   hosts: node1
   remote_user: root
@@ -328,6 +490,8 @@
         repo: "{{ github_repo_url }}"
         dest: "{{ project_directory }}"
         recursive: yes
+        update: no
+      when: source_mode == 'github'
       register: git_clone
 
     - name: Log repository clone
@@ -350,6 +514,47 @@
           - Dump filename: {{ dump_filename }}
           - Dumps directory: {{ dumps_directory }}
 
+    - name: Check cached SQL dump on Lille frontend
+      stat:
+        path: "{{ grid5000_cache.frontend_path }}/{{ dump_filename }}"
+      register: cached_dump_stat
+      delegate_to: grid5000
+      when: >-
+        deployment_mode == 'grid5000' and grid_site == grid5000_cache.site and
+        (grid5000_cache.enabled | bool)
+
+    - name: Check cached SQL dump checksum on Lille frontend
+      stat:
+        path: "{{ grid5000_cache.frontend_path }}/{{ dump_filename }}.sha256"
+      register: cached_dump_checksum_stat
+      delegate_to: grid5000
+      when: cached_dump_stat.stat.exists | default(false)
+
+    - name: Validate cached artifact checksum
+      shell: >-
+        cd {{ grid5000_cache.frontend_path }} &&
+        sha256sum --check {{ dump_filename }}.sha256
+      register: cached_dump_checksum
+      changed_when: false
+      failed_when: false
+      delegate_to: grid5000
+      when: cached_dump_checksum_stat.stat.exists | default(false)
+
+    - name: Fetch verified SQL dump from private Lille cache
+      fetch:
+        src: "{{ grid5000_cache.frontend_path }}/{{ dump_filename }}"
+        dest: "{{ grid5000_cache.controller_path }}/{{ dump_filename }}"
+        flat: true
+      delegate_to: grid5000
+      when: cached_dump_checksum.rc | default(1) == 0
+
+    - name: Materialize cached SQL dump on database node
+      copy:
+        src: "{{ grid5000_cache.controller_path }}/{{ dump_filename }}"
+        dest: "{{ dumps_directory }}/{{ dump_filename }}"
+        mode: '0644'
+      when: cached_dump_checksum.rc | default(1) == 0
+
     - name: Create SQL dumps directory on remote node
       file:
         path: "{{ dumps_directory }}"
@@ -369,7 +574,9 @@
         url: "https://huggingface.co/datasets/{{ huggingface_repo }}/resolve/main/sql_dumps/postgresql/{{ dump_filename }}?download=true"
         dest: "{{ dumps_directory }}/{{ dump_filename }}"
         mode: '0644'
-      when: database_source == "huggingface"
+      when: >-
+        database_source == "huggingface" and
+        cached_dump_checksum.rc | default(1) != 0
       register: hf_download
       retries: 3
       delay: 10
@@ -378,6 +585,47 @@
       debug:
         msg: "Downloaded {{ dump_filename }} from Hugging Face."
       when: database_source == "huggingface" and hf_download.changed
+
+    - name: Calculate downloaded SQL dump checksum
+      command: "sha256sum {{ dumps_directory }}/{{ dump_filename }}"
+      register: downloaded_dump_checksum
+      changed_when: false
+      when: >-
+        database_source == 'huggingface' and
+        cached_dump_checksum.rc | default(1) != 0 and
+        deployment_mode == 'grid5000' and grid_site == grid5000_cache.site and
+        (grid5000_cache.enabled | bool)
+
+    - name: Stage SQL dump on controller for private Lille cache
+      fetch:
+        src: "{{ dumps_directory }}/{{ dump_filename }}"
+        dest: "{{ grid5000_cache.controller_path }}/{{ dump_filename }}"
+        flat: true
+      when: downloaded_dump_checksum is succeeded
+
+    - name: Upload SQL dump cache candidate to Lille frontend
+      copy:
+        src: "{{ grid5000_cache.controller_path }}/{{ dump_filename }}"
+        dest: "{{ grid5000_cache.frontend_path }}/{{ dump_filename }}.partial"
+        mode: '0600'
+      delegate_to: grid5000
+      when: downloaded_dump_checksum is succeeded
+
+    - name: Check staged SQL dump checksum on Lille frontend
+      command: "sha256sum {{ grid5000_cache.frontend_path }}/{{ dump_filename }}.partial"
+      register: staged_dump_checksum
+      changed_when: false
+      delegate_to: grid5000
+      when: downloaded_dump_checksum is succeeded
+
+    - name: Publish downloaded SQL dump to private Lille cache
+      shell: |
+        cd {{ grid5000_cache.frontend_path }}
+        sha256sum {{ dump_filename }}.partial | sed 's/\.partial$//' > {{ dump_filename }}.sha256.partial
+        mv {{ grid5000_cache.frontend_path }}/{{ dump_filename }}.partial {{ grid5000_cache.frontend_path }}/{{ dump_filename }}
+        mv {{ grid5000_cache.frontend_path }}/{{ dump_filename }}.sha256.partial {{ grid5000_cache.frontend_path }}/{{ dump_filename }}.sha256
+      delegate_to: grid5000
+      when: downloaded_dump_checksum is succeeded
 
     - name: Log SQL dumps copy
       debug:
@@ -415,7 +663,7 @@
       shell: |
         cd {{ project_directory }}/ansible-benchmark/docker-db
         docker-compose down -v || true
-        docker-compose up -d --force-recreate --remove-orphans
+        POSTGRES_CONTAINER_SHM_SIZE={{ postgresql_config.container_shm_size }} docker-compose up -d --force-recreate --remove-orphans
       register: docker_compose_result
       retries: 3
       delay: 10
@@ -471,6 +719,47 @@
       set_fact:
         library_install_dir: "/root/public"
 
+    - name: Check cached Scaphandre binary on Lille frontend
+      stat:
+        path: "{{ grid5000_cache.frontend_path }}/scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64"
+      register: cached_scaphandre_stat
+      delegate_to: grid5000
+      when: >-
+        deployment_mode == 'grid5000' and grid_site == grid5000_cache.site and
+        (grid5000_cache.enabled | bool)
+
+    - name: Check cached Scaphandre checksum on Lille frontend
+      stat:
+        path: "{{ grid5000_cache.frontend_path }}/scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64.sha256"
+      register: cached_scaphandre_checksum_stat
+      delegate_to: grid5000
+      when: cached_scaphandre_stat.stat.exists | default(false)
+
+    - name: Validate cached Scaphandre checksum
+      shell: >-
+        cd {{ grid5000_cache.frontend_path }} &&
+        sha256sum --check scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64.sha256
+      register: cached_scaphandre_checksum
+      changed_when: false
+      failed_when: false
+      delegate_to: grid5000
+      when: cached_scaphandre_checksum_stat.stat.exists | default(false)
+
+    - name: Fetch verified Scaphandre binary from private Lille cache
+      fetch:
+        src: "{{ grid5000_cache.frontend_path }}/scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64"
+        dest: "{{ grid5000_cache.controller_path }}/scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64"
+        flat: true
+      delegate_to: grid5000
+      when: cached_scaphandre_checksum.rc | default(1) == 0
+
+    - name: Materialize cached Scaphandre binary on database node
+      copy:
+        src: "{{ grid5000_cache.controller_path }}/scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64"
+        dest: /usr/local/bin/scaphandre
+        mode: '0755'
+      when: cached_scaphandre_checksum.rc | default(1) == 0
+
     - name: Install Cargo and other dependencies
       apt:
         name:
@@ -479,16 +768,32 @@
           - libssl-dev
         state: present
         install_recommends: no
+      when: cached_scaphandre_checksum.rc | default(1) != 0
 
     - name: Log installation of Cargo and dependencies
       debug:
         msg: "Cargo and other dependencies installed"
 
+    - name: Download rustup installer
+      get_url:
+        url: https://sh.rustup.rs
+        dest: /root/rustup-init.sh
+        mode: "0755"
+      when: cached_scaphandre_checksum.rc | default(1) != 0
+
+    - name: Install current stable Rust toolchain
+      command: /root/rustup-init.sh -y --profile minimal --default-toolchain stable
+      args:
+        creates: /root/.cargo/bin/cargo
+      when: cached_scaphandre_checksum.rc | default(1) != 0
+
     - name: Clone Scaphandre repo
       git:
         repo: https://github.com/hubblo-org/scaphandre.git
         dest: "{{ library_install_dir }}/scaphandre"
+        version: "{{ grid5000_cache.scaphandre_git_ref }}"
         update: no
+      when: cached_scaphandre_checksum.rc | default(1) != 0
 
     - name: Log Scaphandre repo clone
       debug:
@@ -497,7 +802,8 @@
     - name: Build Scaphandre
       shell: |
         cd {{ library_install_dir }}/scaphandre
-        cargo build --release
+        /root/.cargo/bin/cargo build --release
+      when: cached_scaphandre_checksum.rc | default(1) != 0
 
     - name: Log Scaphandre build completion
       debug:
@@ -505,6 +811,40 @@
 
     - name: Move Scaphandre binary to /usr/local/bin
       command: sudo mv {{ library_install_dir }}/scaphandre/target/release/scaphandre /usr/local/bin/
+      when: cached_scaphandre_checksum.rc | default(1) != 0
+
+    - name: Stage Scaphandre binary on controller for private Lille cache
+      fetch:
+        src: /usr/local/bin/scaphandre
+        dest: "{{ grid5000_cache.controller_path }}/scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64"
+        flat: true
+      when: >-
+        cached_scaphandre_checksum.rc | default(1) != 0 and
+        deployment_mode == 'grid5000' and grid_site == grid5000_cache.site and
+        (grid5000_cache.enabled | bool)
+
+    - name: Upload Scaphandre cache candidate to Lille frontend
+      copy:
+        src: "{{ grid5000_cache.controller_path }}/scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64"
+        dest: "{{ grid5000_cache.frontend_path }}/scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64.partial"
+        mode: '0700'
+      delegate_to: grid5000
+      when: >-
+        cached_scaphandre_checksum.rc | default(1) != 0 and
+        deployment_mode == 'grid5000' and grid_site == grid5000_cache.site and
+        (grid5000_cache.enabled | bool)
+
+    - name: Publish Scaphandre binary to private Lille cache
+      shell: |
+        cd {{ grid5000_cache.frontend_path }}
+        sha256sum scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64.partial | sed 's/\.partial$//' > scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64.sha256.partial
+        mv scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64.partial scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64
+        mv scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64.sha256.partial scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64.sha256
+      delegate_to: grid5000
+      when: >-
+        cached_scaphandre_checksum.rc | default(1) != 0 and
+        deployment_mode == 'grid5000' and grid_site == grid5000_cache.site and
+        (grid5000_cache.enabled | bool)
 
     - name: Log Scaphandre binary move
       debug:
@@ -671,13 +1011,6 @@
           - Benchmark Type: {{ benchmark_type }}
           - Scale Factor: {{ scale_factor }}
 
-    - name: Start Scaphandre measurement on DB server
-      shell: |
-        nohup scaphandre json -t {{ scaphandre_timeout_s }} -s {{ scaphandre_timestep_s }} --containers -f /root/experiments_summary_dbserver.json &
-      async: "{{ scaphandre_timeout_s | int }}"
-      poll: 0
-      register: scaphandre_task
-
 - name: Setup Node 2 (API Server)
   hosts: node2
   remote_user: root
@@ -774,6 +1107,17 @@
       debug:
         msg: "Cargo and other dependencies installed in {{ library_install_dir }}."
 
+    - name: Download rustup installer
+      get_url:
+        url: https://sh.rustup.rs
+        dest: /root/rustup-init.sh
+        mode: "0755"
+
+    - name: Install current stable Rust toolchain
+      command: /root/rustup-init.sh -y --profile minimal --default-toolchain stable
+      args:
+        creates: /root/.cargo/bin/cargo
+
     - name: Clone Scaphandre repo
       git:
         repo: https://github.com/hubblo-org/scaphandre.git
@@ -787,7 +1131,7 @@
     - name: Build Scaphandre
       shell: |
         cd {{ library_install_dir }}/scaphandre
-        cargo build --release
+        /root/.cargo/bin/cargo build --release
 
     - name: Log Scaphandre build completion
       debug:
@@ -813,6 +1157,8 @@
         repo: "{{ github_repo_url }}"
         dest: "{{ project_directory }}"
         recursive: yes
+        update: no
+      when: source_mode == 'github'
 
     - name: Run setup-formula-config and start docker compose for power monitoring
       shell: |
@@ -857,13 +1203,6 @@
       shell: |
         cd {{ project_directory }}/api-http
         mvn clean install -P {{ 'springboot-tpcc' if benchmark_type == 'TPCC' else 'springboot-tpch' }}
-
-    - name: Start Scaphandre measurement on API server
-      shell: |
-        nohup scaphandre json -t {{ scaphandre_timeout_s }} -s {{ scaphandre_timestep_s }} --containers -f /root/experiments_summary_apiserver.json &
-      async: "{{ scaphandre_timeout_s | int }}"
-      poll: 0
-      register: scaphandre_task
 
     - name: Create target directory for JAR file
       file:
@@ -998,6 +1337,13 @@
         line: "      HIKARI_VALIDATION_TIMEOUT: \"{{ app_environment_vars.HIKARI_VALIDATION_TIMEOUT }}\""
         insertafter: "HIKARI_REGISTER_MBEANS:"
 
+    - name: Wait for database to be reachable from API server
+      wait_for:
+        host: "{{ db_host }}"
+        port: "{{ db_port }}"
+        timeout: 300
+        state: started
+
     - name: Start API server container
       shell: |
         cd {{ project_directory }}/ansible-benchmark/docker-api
@@ -1061,6 +1407,8 @@
         repo: "{{ github_repo_url }}"
         dest: "{{ project_directory }}"
         recursive: yes
+        update: no
+      when: source_mode == 'github'
 
     - name: Build benchbase
       shell: |
@@ -1102,6 +1450,21 @@
         (api_health.json | default({})).get('benchmark', '') == benchmark_type
       retries: 12
       delay: 5
+
+    - name: Start Scaphandre measurement for workload
+      shell: >-
+        nohup scaphandre json -t {{ scaphandre_timeout_s }}
+        -s {{ scaphandre_timestep_s }} --containers
+        -f /root/experiments_summary_{{ item.measurement_role }}.json
+        >/root/scaphandre_{{ item.measurement_role }}.log 2>&1 &
+      delegate_to: "{{ item.host }}"
+      loop:
+        - host: node1
+          measurement_role: dbserver
+        - host: node2
+          measurement_role: apiserver
+      loop_control:
+        label: "{{ item.measurement_role }}"
 
     - name: Create results directory on controller before workload
       file:
@@ -1216,7 +1579,9 @@
 
     - name: Install MongoDB tools
       apt:
-        name: mongodb-database-tools
+        name:
+          - mongodb-database-tools
+          - jq
         state: present
 
 - name: Install MongoDB tools on Node2
@@ -1240,7 +1605,9 @@
 
     - name: Install MongoDB tools
       apt:
-        name: mongodb-database-tools
+        name:
+          - mongodb-database-tools
+          - jq
         state: present
 
 - name: Dump MongoDB db_power on DB server (Node1) and fetch dump
@@ -1254,11 +1621,18 @@
     - name: Download JSON file from docker container to node 
       shell: docker cp mongodb:/root/mongodump-DB-server.json /root/mongodump-DB-server.json
 
+    - name: Validate MongoDB export from DB server
+      shell: "jq -e 'type == \"array\" and length > 0' /root/mongodump-DB-server.json"
+      register: mongodump_db_validation
+      changed_when: false
+      failed_when: false
+
     - name: Fetch MongoDB dump from DB server to controller
       fetch:
         src: /root/mongodump-DB-server.json
         dest: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/mongodump-DB-server.json"
         flat: yes
+      when: mongodump_db_validation.rc == 0
 
     - name: Log DB server dump download
       debug:
@@ -1275,11 +1649,18 @@
     - name: Download JSON file from docker container to node 
       shell: docker cp mongodb:/root/mongodump-API-server.json /root/mongodump-API-server.json
 
+    - name: Validate MongoDB export from API server
+      shell: "jq -e 'type == \"array\" and length > 0' /root/mongodump-API-server.json"
+      register: mongodump_api_validation
+      changed_when: false
+      failed_when: false
+
     - name: Fetch MongoDB dump from API server to controller
       fetch:
         src: /root/mongodump-API-server.json
         dest: "~/Desktop/Results_rest_q_xml_benchmarks/experiment_{{ benchmark_type }}_{{ timestamp }}/mongodump-API-server.json"
         flat: yes
+      when: mongodump_api_validation.rc == 0
 
     - name: Log API server dump download
       debug:
@@ -1429,6 +1810,10 @@
             "scale_factor": "{{ scale_factor }}",
             "experiment_duration": "{{ experiment_duration }}",
             "timestamp": "{{ timestamp }}",
+            "source_mode": "{{ source_mode }}",
+            "github_repo_url": "{{ github_repo_url if source_mode == 'github' else '' }}",
+            "source_archive_filename": "{{ hostvars['localhost'].source_archive_filename | default('') }}",
+            "source_archive_sha256": "{{ hostvars['localhost'].source_archive_sha256 | default('') }}",
             "node1_hostname": "{{ hostvars['node1'].ansible_host }}",
             "node2_hostname": "{{ hostvars['node2'].ansible_host }}",
             "node3_hostname": "{{ hostvars['node3'].ansible_host }}",
@@ -1469,7 +1854,7 @@
     - name: Build and run JSON combiner
       shell: |
         cd {{ project_directory }}/api-http
-        java -cp target/api-http-1.0-SNAPSHOT-jar-with-dependencies.jar com.restq.utils.JsonCombiner /root/fixed_json_files /root/combined_results_{{ benchmark_type }}_{{ timestamp }}.json
+        java -cp target/api-http-1.0-SNAPSHOT-jar-with-dependencies.jar com.restq.utils.JsonCombiner /root/fixed_json_files /root/combined_results_{{ benchmark_type }}_{{ timestamp }}.json {{ energy_validation_boundary_tolerance_ms }}
       register: combiner_output
       failed_when: false
       

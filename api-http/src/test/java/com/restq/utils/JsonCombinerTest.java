@@ -115,6 +115,16 @@ class JsonCombinerTest {
         assertFalse(check(enriched, "CLIENT_VALIDATION").getBoolean("valid"));
     }
 
+    @Test
+    void acceptsOneSecondSamplerJitterWithinConfiguredBoundaryTolerance() {
+        JSONArray samples = powerSeries(10.0, 0, 2, 3, 4);
+
+        JsonCombiner.EnergyMetrics metrics = JsonCombiner.integrate(
+                samples, 1_100L, 3_500L, 2_000L);
+
+        assertEquals(24.0, metrics.energyJ(), 1e-9);
+    }
+
     private static JSONObject measurement(long timestamp) {
         return new JSONObject()
                 .put("host", new JSONObject()

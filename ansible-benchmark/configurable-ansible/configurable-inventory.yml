@@ -22,6 +22,15 @@ all:
     grid_job_wait_timeout_minutes: 60
     scaphandre_timestep_s: 1 # Timestep in seconds for power monitoring
     ansible_ssh_private_key_file_g5k: ~/.ssh/grid5000_key_ubs
+    ubuntu_apt_mirror: "https://ubuntu.mirrors.ovh.net/ubuntu"
+    # The deployed node disks are ephemeral. This private frontend path survives
+    # Lille reservations; cache use is disabled automatically on other sites.
+    grid5000_cache:
+      enabled: true
+      site: lille
+      frontend_path: "/home/{{ grid_user }}/.cache/restq"
+      controller_path: "/tmp/restq-grid5000-cache"
+      scaphandre_git_ref: "v1.0.2"
     
     # ====================================
     # Manual Node Configuration (for manual mode)
@@ -144,6 +153,9 @@ all:
     # GitHub repository URL for RestQFramework
     github_repo_url: "https://github.com/OstapKH/RestQ.git"
     project_directory: "/root/RestQ"
+    # github: clone the configured immutable revision; local_archive: package
+    # this current working tree (including uncommitted source) for the nodes.
+    source_mode: github  # github | local_archive
     
     # ====================================
     # Database Dump Configuration
@@ -181,6 +193,9 @@ all:
       # Memory PostgreSQL uses for caching data (shared memory)
       # Recommended: 25% of system RAM for dedicated database servers
       shared_buffers: "128MB"
+      # Docker's default /dev/shm is 64MB, which is smaller than the configured
+      # shared_buffers
+      container_shm_size: "1g"
       
       # Memory for internal operations like sorting or hashing per operation
       # Each operation can use this much memory
@@ -274,6 +289,9 @@ all:
         + ((experiment_duration.split(':')[1] | int) * 60)
         + (experiment_duration.split(':')[2] | int)
       }}
+      
+    energy_validation_boundary_tolerance_ms: >-
+      {{ (scaphandre_timestep_s | int) * 2000 }}
     
     # Use a static timestamp that will be consistent across all nodes
     # You can modify this for each experiment run
@@ -317,6 +335,12 @@ all:
         {%- elif deployment_mode == 'localhost' or deployment_mode == 'macos' -%}
         localhost
         {%- endif -%}
+      # Grid nodes are directly reachable through the Grid'5000 VPN. Ignore
+      # workstation SSH aliases, which may contain stale ProxyJump credentials.
+      ansible_ssh_common_args: >-
+        {%- if deployment_mode == 'grid5000' -%}
+        -F /dev/null -o StrictHostKeyChecking=accept-new
+        {%- endif -%}
         
     node2:
       ansible_host: >-
@@ -326,6 +350,10 @@ all:
         {{ manual_nodes.node2_host }}
         {%- elif deployment_mode == 'localhost' or deployment_mode == 'macos' -%}
         localhost
+        {%- endif -%}
+      ansible_ssh_common_args: >-
+        {%- if deployment_mode == 'grid5000' -%}
+        -F /dev/null -o StrictHostKeyChecking=accept-new
         {%- endif -%}
         
     node3:
@@ -337,3 +365,7 @@ all:
         {%- elif deployment_mode == 'localhost' or deployment_mode == 'macos' -%}
         localhost
         {%- endif -%} 
+      ansible_ssh_common_args: >-
+        {%- if deployment_mode == 'grid5000' -%}
+        -F /dev/null -o StrictHostKeyChecking=accept-new
+        {%- endif -%}

@@ -31,7 +31,9 @@ public class JsonCombiner {
 }
         int exitCode;
         try {
-            exitCode = combine(Paths.get(args[0]), Paths.get(args[1]));
+            long boundaryToleranceMs = args.length >= 3
+                    ? Long.parseLong(args[2]) : BOUNDARY_TOLERANCE_MS;
+            exitCode = combine(Paths.get(args[0]), Paths.get(args[1]), boundaryToleranceMs);
         } catch (Exception e) {
             System.err.println("Error combining JSON files: " + e.getMessage());
             e.printStackTrace();
@@ -47,6 +49,13 @@ public class JsonCombiner {
      * still written for diagnosis and return status 2.
      */
     static int combine(Path inputPath, Path outputFile) throws IOException {
+        return combine(inputPath, outputFile, BOUNDARY_TOLERANCE_MS);
+    }
+
+    static int combine(Path inputPath, Path outputFile, long boundaryToleranceMs) throws IOException {
+        if (boundaryToleranceMs <= 0) {
+            throw new IllegalArgumentException("Boundary tolerance must be positive");
+        }
         JsonFixer.fixJsonFilesInFolder(inputPath.toString());
 
         JSONObject combined = new JSONObject();
@@ -55,12 +64,12 @@ public class JsonCombiner {
         JSONObject benchmark = readBenchmark(inputPath);
         ExperimentWindow experimentWindow = findExperimentWindow(benchmark);
         ExperimentWindow paddedEnergyWindow = new ExperimentWindow(
-                experimentWindow.startMs() - BOUNDARY_TOLERANCE_MS,
-                experimentWindow.endMs() + BOUNDARY_TOLERANCE_MS);
+                experimentWindow.startMs() - boundaryToleranceMs,
+                experimentWindow.endMs() + boundaryToleranceMs);
         JSONArray dbEnergy = readEnergy(inputPath, "dbserver", paddedEnergyWindow);
         JSONArray apiEnergy = readEnergy(inputPath, "apiserver", paddedEnergyWindow);
 
-        JSONObject enriched = enrichAndValidate(benchmark, dbEnergy, apiEnergy);
+        JSONObject enriched = enrichAndValidate(benchmark, dbEnergy, apiEnergy, boundaryToleranceMs);
         combined.put("benchmark_results", enriched);
         combined.put("validation", enriched.getJSONObject("validation"));
         combined.put("db_server_energy", dbEnergy);
@@ -114,6 +123,11 @@ public class JsonCombiner {
      * Energy is intentionally attached to a whole run, never to parameter sets.
      */
     static JSONObject enrichAndValidate(JSONObject benchmark, JSONArray db, JSONArray api) {
+        return enrichAndValidate(benchmark, db, api, BOUNDARY_TOLERANCE_MS);
+    }
+
+    static JSONObject enrichAndValidate(
+            JSONObject benchmark, JSONArray db, JSONArray api, long boundaryToleranceMs) {
         JSONArray completenessProblems = new JSONArray();
         JSONArray dbProblems = new JSONArray();
         JSONArray apiProblems = new JSONArray();
@@ -155,9 +169,9 @@ public class JsonCombiner {
                     }
 
                     EnergyMetrics dbMetrics = integrateForValidation(
-                            db, start, end, runLabel, dbProblems);
+                            db, start, end, runLabel, dbProblems, boundaryToleranceMs);
                     EnergyMetrics apiMetrics = integrateForValidation(
-                            api, start, end, runLabel, apiProblems);
+                            api, start, end, runLabel, apiProblems, boundaryToleranceMs);
                     if (dbMetrics != null && apiMetrics != null) {
                         attachEnergy(run, dbMetrics, apiMetrics);
                     }
@@ -187,9 +201,10 @@ public class JsonCombiner {
     }
 
     private static EnergyMetrics integrateForValidation(
-            JSONArray samples, long startMs, long endMs, String runLabel, JSONArray problems) {
+            JSONArray samples, long startMs, long endMs, String runLabel, JSONArray problems,
+            long boundaryToleranceMs) {
         try {
-            return integrate(samples, startMs, endMs);
+            return integrate(samples, startMs, endMs, boundaryToleranceMs);
         } catch (IllegalArgumentException e) {
             problems.put(runLabel + ": " + e.getMessage());
             return null;
@@ -235,8 +250,16 @@ public class JsonCombiner {
      * and the trapezoidal rule.
      */
     static EnergyMetrics integrate(JSONArray samples, long startMs, long endMs) {
+        return integrate(samples, startMs, endMs, BOUNDARY_TOLERANCE_MS);
+    }
+
+    static EnergyMetrics integrate(
+            JSONArray samples, long startMs, long endMs, long boundaryToleranceMs) {
         if (endMs <= startMs) {
             throw new IllegalArgumentException("Run end must be after run start");
+        }
+        if (boundaryToleranceMs <= 0) {
+            throw new IllegalArgumentException("Boundary tolerance must be positive");
         }
         List<PowerPoint> points = powerPoints(samples);
         if (points.size() < 2) {
@@ -253,11 +276,13 @@ public class JsonCombiner {
                 after = point;
             }
         }
-        if (before == null || startMs - before.timestampMs() > BOUNDARY_TOLERANCE_MS) {
-            throw new IllegalArgumentException("No sample brackets the run start within 1000 ms");
+        if (before == null || startMs - before.timestampMs() > boundaryToleranceMs) {
+            throw new IllegalArgumentException("No sample brackets the run start within "
+                    + boundaryToleranceMs + " ms");
         }
-        if (after == null || after.timestampMs() - endMs > BOUNDARY_TOLERANCE_MS) {
-            throw new IllegalArgumentException("No sample brackets the run end within 1000 ms");
+        if (after == null || after.timestampMs() - endMs > boundaryToleranceMs) {
+            throw new IllegalArgumentException("No sample brackets the run end within "
+                    + boundaryToleranceMs + " ms");
         }
 
         int first = points.indexOf(before);

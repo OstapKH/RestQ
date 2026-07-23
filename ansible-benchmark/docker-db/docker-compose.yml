@@ -5,6 +5,7 @@ services:
     image: postgres:17
     container_name: db-docker-container
     restart: always
+    shm_size: ${POSTGRES_CONTAINER_SHM_SIZE:-1g}
     environment:
       POSTGRES_PASSWORD: password
       POSTGRES_USER: admin
