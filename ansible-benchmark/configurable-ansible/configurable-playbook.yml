@@ -590,19 +590,19 @@
       delegate_to: grid5000
       when: cached_dump_checksum.rc | default(1) == 0
 
-    - name: Materialize cached SQL dump on database node
-      copy:
-        src: "{{ grid5000_cache.controller_path }}/{{ dump_filename }}"
-        dest: "{{ dumps_directory }}/{{ dump_filename }}"
-        mode: '0644'
-      when: cached_dump_checksum.rc | default(1) == 0
-
     - name: Create SQL dumps directory on remote node
       file:
         path: "{{ dumps_directory }}"
         state: directory
         mode: '0755'
       when: database_source == "dumps" or database_source == "huggingface"
+
+    - name: Materialize cached SQL dump on database node
+      copy:
+        src: "{{ grid5000_cache.controller_path }}/{{ dump_filename }}"
+        dest: "{{ dumps_directory }}/{{ dump_filename }}"
+        mode: '0644'
+      when: cached_dump_checksum.rc | default(1) == 0
 
     - name: Copy SQL dumps to remote node (when not using localhost)
       copy:
