@@ -31,6 +31,7 @@ all:
       frontend_path: "/home/{{ grid_user }}/.cache/restq"
       controller_path: "/tmp/restq-grid5000-cache"
       scaphandre_git_ref: "v1.0.2"
+      publish_after_workload: true
     
     # ====================================
     # Manual Node Configuration (for manual mode)

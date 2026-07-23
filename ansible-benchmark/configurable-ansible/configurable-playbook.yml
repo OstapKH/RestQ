@@ -399,6 +399,48 @@
         - deployment_mode == 'grid5000'
         - source_mode == 'github'
 
+- name: Prepare role-specific layers in parallel
+  hosts: node2:node3
+  remote_user: root
+  strategy: free
+  tasks:
+    - name: Start API layer compilation while database layer is prepared
+      shell: |
+        cd {{ project_directory }}/benchbase
+        ./mvnw clean install -P postgres -DskipTests
+        cd {{ project_directory }}/core
+        mvn clean install -P simple-jar
+        cd {{ project_directory }}/api-http
+        mvn clean install -P {{ 'springboot-tpcc' if benchmark_type == 'TPCC' else 'springboot-tpch' }}
+      async: 3600
+      poll: 0
+      register: api_layer_build
+      when: inventory_hostname == 'node2'
+
+    - name: Copy benchmark configuration before client compilation
+      copy:
+        src: "../benchmark-config/{{ item.source }}"
+        dest: "{{ project_directory }}/api-http/src/main/resources/{{ item.destination }}"
+      loop:
+        - source: "{{ benchmark_config_file }}"
+          destination: benchmark-config.xml
+        - source: "{{ benchmark_parameters_file }}"
+          destination: parameters.xml
+      when: inventory_hostname == 'node3'
+
+    - name: Start benchmark client layer compilation while database layer is prepared
+      shell: |
+        cd {{ project_directory }}/benchbase
+        ./mvnw clean install -P postgres -DskipTests
+        cd {{ project_directory }}/core
+        mvn clean install -P simple-jar
+        cd {{ project_directory }}/api-http
+        mvn clean install -P benchmark-app
+      async: 3600
+      poll: 0
+      register: client_layer_build
+      when: inventory_hostname == 'node3'
+
 - name: Setup Node 1 (Database Server)
   hosts: node1
   remote_user: root
@@ -601,7 +643,9 @@
         src: "{{ dumps_directory }}/{{ dump_filename }}"
         dest: "{{ grid5000_cache.controller_path }}/{{ dump_filename }}"
         flat: true
-      when: downloaded_dump_checksum is succeeded
+      when: >-
+        downloaded_dump_checksum is succeeded and
+        not (grid5000_cache.publish_after_workload | default(true) | bool)
 
     - name: Upload SQL dump cache candidate to Lille frontend
       copy:
@@ -609,14 +653,18 @@
         dest: "{{ grid5000_cache.frontend_path }}/{{ dump_filename }}.partial"
         mode: '0600'
       delegate_to: grid5000
-      when: downloaded_dump_checksum is succeeded
+      when: >-
+        downloaded_dump_checksum is succeeded and
+        not (grid5000_cache.publish_after_workload | default(true) | bool)
 
     - name: Check staged SQL dump checksum on Lille frontend
       command: "sha256sum {{ grid5000_cache.frontend_path }}/{{ dump_filename }}.partial"
       register: staged_dump_checksum
       changed_when: false
       delegate_to: grid5000
-      when: downloaded_dump_checksum is succeeded
+      when: >-
+        downloaded_dump_checksum is succeeded and
+        not (grid5000_cache.publish_after_workload | default(true) | bool)
 
     - name: Publish downloaded SQL dump to private Lille cache
       shell: |
@@ -625,7 +673,9 @@
         mv {{ grid5000_cache.frontend_path }}/{{ dump_filename }}.partial {{ grid5000_cache.frontend_path }}/{{ dump_filename }}
         mv {{ grid5000_cache.frontend_path }}/{{ dump_filename }}.sha256.partial {{ grid5000_cache.frontend_path }}/{{ dump_filename }}.sha256
       delegate_to: grid5000
-      when: downloaded_dump_checksum is succeeded
+      when: >-
+        downloaded_dump_checksum is succeeded and
+        not (grid5000_cache.publish_after_workload | default(true) | bool)
 
     - name: Log SQL dumps copy
       debug:
@@ -821,7 +871,8 @@
       when: >-
         cached_scaphandre_checksum.rc | default(1) != 0 and
         deployment_mode == 'grid5000' and grid_site == grid5000_cache.site and
-        (grid5000_cache.enabled | bool)
+        (grid5000_cache.enabled | bool) and
+        not (grid5000_cache.publish_after_workload | default(true) | bool)
 
     - name: Upload Scaphandre cache candidate to Lille frontend
       copy:
@@ -832,7 +883,8 @@
       when: >-
         cached_scaphandre_checksum.rc | default(1) != 0 and
         deployment_mode == 'grid5000' and grid_site == grid5000_cache.site and
-        (grid5000_cache.enabled | bool)
+        (grid5000_cache.enabled | bool) and
+        not (grid5000_cache.publish_after_workload | default(true) | bool)
 
     - name: Publish Scaphandre binary to private Lille cache
       shell: |
@@ -844,7 +896,8 @@
       when: >-
         cached_scaphandre_checksum.rc | default(1) != 0 and
         deployment_mode == 'grid5000' and grid_site == grid5000_cache.site and
-        (grid5000_cache.enabled | bool)
+        (grid5000_cache.enabled | bool) and
+        not (grid5000_cache.publish_after_workload | default(true) | bool)
 
     - name: Log Scaphandre binary move
       debug:
@@ -1011,7 +1064,7 @@
           - Benchmark Type: {{ benchmark_type }}
           - Scale Factor: {{ scale_factor }}
 
-- name: Setup Node 2 (API Server)
+- name: Activate Node 2 (API Server)
   hosts: node2
   remote_user: root
   vars:
@@ -1023,6 +1076,24 @@
     db_user: admin
     db_password: password
   tasks:
+    - name: Wait for parallel API layer compilation
+      async_status:
+        jid: "{{ api_layer_build.ansible_job_id }}"
+      register: api_layer_build_result
+      until: api_layer_build_result.finished
+      retries: 360
+      delay: 10
+
+    - name: Validate parallel API layer compilation
+      assert:
+        that:
+          - api_layer_build_result.rc | int == 0
+        fail_msg: "Parallel API layer compilation failed: {{ api_layer_build_result.stderr | default('no stderr') }}"
+
+    - name: Mark API layer as compiled
+      set_fact:
+        api_layer_compiled: true
+
     - name: Download Java 23
       get_url:
         url: https://download.oracle.com/java/23/archive/jdk-23_linux-x64_bin.deb
@@ -1175,11 +1246,13 @@
       shell: |
         cd {{ project_directory }}/benchbase/
         ./mvnw clean install -P postgres -DskipTests
+      when: not (api_layer_compiled | default(false) | bool)
 
     - name: Build core
       shell: |
         cd {{ project_directory }}/core
         mvn clean install -P simple-jar
+      when: not (api_layer_compiled | default(false) | bool)
 
     - name: Modify application properties
       lineinfile:
@@ -1203,6 +1276,7 @@
       shell: |
         cd {{ project_directory }}/api-http
         mvn clean install -P {{ 'springboot-tpcc' if benchmark_type == 'TPCC' else 'springboot-tpch' }}
+      when: not (api_layer_compiled | default(false) | bool)
 
     - name: Create target directory for JAR file
       file:
@@ -1366,12 +1440,30 @@
       debug:
         msg: "API server container is running on port {{ api_port }} with {{ benchmark_type }} benchmark"
 
-- name: Setup Node 3 (Benchmark Client)
+- name: Run workload from Node 3 (Benchmark Client)
   hosts: node3
   remote_user: root
   vars:
     api_port: 8086
   tasks:
+    - name: Wait for parallel benchmark client layer compilation
+      async_status:
+        jid: "{{ client_layer_build.ansible_job_id }}"
+      register: client_layer_build_result
+      until: client_layer_build_result.finished
+      retries: 360
+      delay: 10
+
+    - name: Validate parallel benchmark client layer compilation
+      assert:
+        that:
+          - client_layer_build_result.rc | int == 0
+        fail_msg: "Parallel benchmark client layer compilation failed: {{ client_layer_build_result.stderr | default('no stderr') }}"
+
+    - name: Mark benchmark client layer as compiled
+      set_fact:
+        client_layer_compiled: true
+
     - name: Download Java 23
       get_url:
         url: https://download.oracle.com/java/23/archive/jdk-23_linux-x64_bin.deb
@@ -1414,26 +1506,31 @@
       shell: |
         cd {{ project_directory }}/benchbase/
         ./mvnw clean install -P postgres -DskipTests
+      when: not (client_layer_compiled | default(false) | bool)
 
     - name: Build core
       shell: |
         cd {{ project_directory }}/core
         mvn clean install -P simple-jar
+      when: not (client_layer_compiled | default(false) | bool)
 
     - name: Copy custom benchmark-config.xml (local) to the server
       copy:
         src: "../benchmark-config/{{ benchmark_config_file }}"
         dest: "{{ project_directory }}/api-http/src/main/resources/benchmark-config.xml"
+      when: not (client_layer_compiled | default(false) | bool)
 
     - name: Copy labelled benchmark parameters (local) to the server
       copy:
         src: "../benchmark-config/{{ benchmark_parameters_file }}"
         dest: "{{ project_directory }}/api-http/src/main/resources/parameters.xml"
+      when: not (client_layer_compiled | default(false) | bool)
 
     - name: Build Benchmark module
       shell: |
         cd {{ project_directory }}/api-http
         mvn clean install -P benchmark-app
+      when: not (client_layer_compiled | default(false) | bool)
 
     - name: Verify API health from benchmark client
       uri:
@@ -1488,6 +1585,72 @@
     - name: Preserve benchmark process return code for final verdict
       set_fact:
         benchmark_run_rc: "{{ benchmark_run.rc | default(1) | int }}"
+
+- name: Publish verified Lille cache artifacts after workload
+  hosts: node1
+  remote_user: root
+  tasks:
+    - name: Publish SQL dump cache without delaying activation
+      block:
+        - name: Stage SQL dump on controller after workload
+          fetch:
+            src: "{{ dumps_directory }}/{{ dump_filename }}"
+            dest: "{{ grid5000_cache.controller_path }}/{{ dump_filename }}"
+            flat: true
+
+        - name: Upload SQL dump cache candidate after workload
+          copy:
+            src: "{{ grid5000_cache.controller_path }}/{{ dump_filename }}"
+            dest: "{{ grid5000_cache.frontend_path }}/{{ dump_filename }}.partial"
+            mode: '0600'
+          delegate_to: grid5000
+
+        - name: Publish SQL dump cache candidate atomically after workload
+          shell: |
+            cd {{ grid5000_cache.frontend_path }}
+            sha256sum {{ dump_filename }}.partial | sed 's/\.partial$//' > {{ dump_filename }}.sha256.partial
+            mv {{ dump_filename }}.partial {{ dump_filename }}
+            mv {{ dump_filename }}.sha256.partial {{ dump_filename }}.sha256
+          delegate_to: grid5000
+      rescue:
+        - name: Cache publication must not block the experiment
+          debug:
+            msg: "Cache publication must not block the experiment; SQL dump cache refresh was skipped."
+      when: >-
+        grid5000_cache.publish_after_workload | default(true) | bool and
+        downloaded_dump_checksum is succeeded
+
+    - name: Publish Scaphandre cache without delaying activation
+      block:
+        - name: Stage Scaphandre binary on controller after workload
+          fetch:
+            src: /usr/local/bin/scaphandre
+            dest: "{{ grid5000_cache.controller_path }}/scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64"
+            flat: true
+
+        - name: Upload Scaphandre cache candidate after workload
+          copy:
+            src: "{{ grid5000_cache.controller_path }}/scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64"
+            dest: "{{ grid5000_cache.frontend_path }}/scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64.partial"
+            mode: '0700'
+          delegate_to: grid5000
+
+        - name: Publish Scaphandre cache candidate atomically after workload
+          shell: |
+            cd {{ grid5000_cache.frontend_path }}
+            sha256sum scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64.partial | sed 's/\.partial$//' > scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64.sha256.partial
+            mv scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64.partial scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64
+            mv scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64.sha256.partial scaphandre-{{ grid5000_cache.scaphandre_git_ref }}-amd64.sha256
+          delegate_to: grid5000
+      rescue:
+        - name: Cache publication must not block the experiment
+          debug:
+            msg: "Cache publication must not block the experiment; Scaphandre cache refresh was skipped."
+      when: >-
+        grid5000_cache.publish_after_workload | default(true) | bool and
+        cached_scaphandre_checksum.rc | default(1) != 0 and
+        deployment_mode == 'grid5000' and grid_site == grid5000_cache.site and
+        (grid5000_cache.enabled | bool)
           
 - name: Stopping Scaphandre measurement on Node 1
   hosts: node1
