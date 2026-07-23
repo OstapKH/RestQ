@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<parameters>
+    <endpoint name="pricing-summary" query-id="Q01">
+        <url id="Q01-P1">/pricing-summary?delta=60&amp;shipDate=1998-08-01</url>
+        <url id="Q01-P2">/pricing-summary?delta=90&amp;shipDate=1998-06-01</url>
+        <url id="Q01-P3">/pricing-summary?delta=30&amp;shipDate=1997-12-01</url>
+        <url id="Q01-P4">/pricing-summary?delta=120&amp;shipDate=1996-07-01</url>
+        <url id="Q01-P5">/pricing-summary?delta=75&amp;shipDate=1995-03-15</url>
+    </endpoint>
+    <endpoint name="revenue-increase" query-id="Q06">
+        <url id="Q06-P1">/revenue-increase?discount=0.02&amp;quantity=24&amp;startDate=1993-01-01</url>
+        <url id="Q06-P2">/revenue-increase?discount=0.04&amp;quantity=25&amp;startDate=1994-01-01</url>
+        <url id="Q06-P3">/revenue-increase?discount=0.06&amp;quantity=24&amp;startDate=1995-01-01</url>
+        <url id="Q06-P4">/revenue-increase?discount=0.08&amp;quantity=25&amp;startDate=1996-01-01</url>
+        <url id="Q06-P5">/revenue-increase?discount=0.09&amp;quantity=24&amp;startDate=1997-01-01</url>
+    </endpoint>
+</parameters>

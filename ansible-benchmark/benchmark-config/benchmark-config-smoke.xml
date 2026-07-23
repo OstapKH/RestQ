@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<benchmark-config>
+    <pauseBetweenExperiments-ms>10000</pauseBetweenExperiments-ms>
+    <random-seed>5000</random-seed>
+
+    <endpoints>
+        <endpoint name="pricing-summary"/>
+        <endpoint name="supplier-part-info"/>
+        <endpoint name="order-revenue-info"/>
+        <endpoint name="order-priority-count"/>
+        <endpoint name="local-supplier-volume"/>
+        <endpoint name="revenue-increase"/>
+        <endpoint name="nations-volume-shipping"/>
+        <endpoint name="market-share"/>
+        <endpoint name="product-type-profit"/>
+        <endpoint name="returned-items"/>
+        <endpoint name="important-stock"/>
+        <endpoint name="shipping-modes"/>
+        <endpoint name="customer-distribution"/>
+        <endpoint name="promotion-revenue"/>
+        <endpoint name="part-supplier-relationships"/>
+        <endpoint name="small-quantity-revenue"/>
+        <endpoint name="discounted-revenue"/>
+        <endpoint name="suppliers-kept-waiting"/>
+        <endpoint name="global-sales-opportunities"/>
+    </endpoints>
+
+    <experiment>
+        <experiment_name>Q01_warmup</experiment_name>
+        <runs>1</runs>
+        <pause-between-runs-ms>0</pause-between-runs-ms>
+        <connections>4</connections>
+        <requests-per-second>1</requests-per-second>
+        <duration-seconds>20</duration-seconds>
+        <pacing>uniform</pacing>
+        <warmup>true</warmup>
+        <probabilities>
+            <probability endpoint="pricing-summary">1.0</probability>
+            <probability endpoint="supplier-part-info">0.0</probability>
+            <probability endpoint="order-revenue-info">0.0</probability>
+            <probability endpoint="order-priority-count">0.0</probability>
+            <probability endpoint="local-supplier-volume">0.0</probability>
+            <probability endpoint="revenue-increase">0.0</probability>
+            <probability endpoint="nations-volume-shipping">0.0</probability>
+            <probability endpoint="market-share">0.0</probability>
+            <probability endpoint="product-type-profit">0.0</probability>
+            <probability endpoint="returned-items">0.0</probability>
+            <probability endpoint="important-stock">0.0</probability>
+            <probability endpoint="shipping-modes">0.0</probability>
+            <probability endpoint="customer-distribution">0.0</probability>
+            <probability endpoint="promotion-revenue">0.0</probability>
+            <probability endpoint="part-supplier-relationships">0.0</probability>
+            <probability endpoint="small-quantity-revenue">0.0</probability>
+            <probability endpoint="discounted-revenue">0.0</probability>
+            <probability endpoint="suppliers-kept-waiting">0.0</probability>
+            <probability endpoint="global-sales-opportunities">0.0</probability>
+        </probabilities>
+    </experiment>
+
+    <experiment>
+        <experiment_name>Q01_measured</experiment_name>
+        <runs>3</runs>
+        <pause-between-runs-ms>5000</pause-between-runs-ms>
+        <connections>4</connections>
+        <requests-per-second>1</requests-per-second>
+        <duration-seconds>45</duration-seconds>
+        <pacing>uniform</pacing>
+        <probabilities>
+            <probability endpoint="pricing-summary">1.0</probability>
+            <probability endpoint="supplier-part-info">0.0</probability>
+            <probability endpoint="order-revenue-info">0.0</probability>
+            <probability endpoint="order-priority-count">0.0</probability>
+            <probability endpoint="local-supplier-volume">0.0</probability>
+            <probability endpoint="revenue-increase">0.0</probability>
+            <probability endpoint="nations-volume-shipping">0.0</probability>
+            <probability endpoint="market-share">0.0</probability>
+            <probability endpoint="product-type-profit">0.0</probability>
+            <probability endpoint="returned-items">0.0</probability>
+            <probability endpoint="important-stock">0.0</probability>
+            <probability endpoint="shipping-modes">0.0</probability>
+            <probability endpoint="customer-distribution">0.0</probability>
+            <probability endpoint="promotion-revenue">0.0</probability>
+            <probability endpoint="part-supplier-relationships">0.0</probability>
+            <probability endpoint="small-quantity-revenue">0.0</probability>
+            <probability endpoint="discounted-revenue">0.0</probability>
+            <probability endpoint="suppliers-kept-waiting">0.0</probability>
+            <probability endpoint="global-sales-opportunities">0.0</probability>
+        </probabilities>
+    </experiment>
+
+    <experiment>
+        <experiment_name>Q06_warmup</experiment_name>
+        <runs>1</runs>
+        <pause-between-runs-ms>0</pause-between-runs-ms>
+        <connections>4</connections>
+        <requests-per-second>1</requests-per-second>
+        <duration-seconds>20</duration-seconds>
+        <pacing>uniform</pacing>
+        <warmup>true</warmup>
+        <probabilities>
+            <probability endpoint="pricing-summary">0.0</probability>
+            <probability endpoint="supplier-part-info">0.0</probability>
+            <probability endpoint="order-revenue-info">0.0</probability>
+            <probability endpoint="order-priority-count">0.0</probability>
+            <probability endpoint="local-supplier-volume">0.0</probability>
+            <probability endpoint="revenue-increase">1.0</probability>
+            <probability endpoint="nations-volume-shipping">0.0</probability>
+            <probability endpoint="market-share">0.0</probability>
+            <probability endpoint="product-type-profit">0.0</probability>
+            <probability endpoint="returned-items">0.0</probability>
+            <probability endpoint="important-stock">0.0</probability>
+            <probability endpoint="shipping-modes">0.0</probability>
+            <probability endpoint="customer-distribution">0.0</probability>
+            <probability endpoint="promotion-revenue">0.0</probability>
+            <probability endpoint="part-supplier-relationships">0.0</probability>
+            <probability endpoint="small-quantity-revenue">0.0</probability>
+            <probability endpoint="discounted-revenue">0.0</probability>
+            <probability endpoint="suppliers-kept-waiting">0.0</probability>
+            <probability endpoint="global-sales-opportunities">0.0</probability>
+        </probabilities>
+    </experiment>
+
+    <experiment>
+        <experiment_name>Q06_measured</experiment_name>
+        <runs>3</runs>
+        <pause-between-runs-ms>5000</pause-between-runs-ms>
+        <connections>4</connections>
+        <requests-per-second>1</requests-per-second>
+        <duration-seconds>45</duration-seconds>
+        <pacing>uniform</pacing>
+        <probabilities>
+            <probability endpoint="pricing-summary">0.0</probability>
+            <probability endpoint="supplier-part-info">0.0</probability>
+            <probability endpoint="order-revenue-info">0.0</probability>
+            <probability endpoint="order-priority-count">0.0</probability>
+            <probability endpoint="local-supplier-volume">0.0</probability>
+            <probability endpoint="revenue-increase">1.0</probability>
+            <probability endpoint="nations-volume-shipping">0.0</probability>
+            <probability endpoint="market-share">0.0</probability>
+            <probability endpoint="product-type-profit">0.0</probability>
+            <probability endpoint="returned-items">0.0</probability>
+            <probability endpoint="important-stock">0.0</probability>
+            <probability endpoint="shipping-modes">0.0</probability>
+            <probability endpoint="customer-distribution">0.0</probability>
+            <probability endpoint="promotion-revenue">0.0</probability>
+            <probability endpoint="part-supplier-relationships">0.0</probability>
+            <probability endpoint="small-quantity-revenue">0.0</probability>
+            <probability endpoint="discounted-revenue">0.0</probability>
+            <probability endpoint="suppliers-kept-waiting">0.0</probability>
+            <probability endpoint="global-sales-opportunities">0.0</probability>
+        </probabilities>
+    </experiment>
+</benchmark-config>

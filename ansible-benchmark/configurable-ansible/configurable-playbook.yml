@@ -1668,7 +1668,9 @@
             msg: "Cache publication must not block the experiment; SQL dump cache refresh was skipped."
       when: >-
         grid5000_cache.publish_after_workload | default(true) | bool and
-        downloaded_dump_checksum is succeeded
+        downloaded_dump_checksum is succeeded and
+        deployment_mode == 'grid5000' and grid_site == grid5000_cache.site and
+        (grid5000_cache.enabled | bool)
 
     - name: Publish Scaphandre cache without delaying activation
       block:
