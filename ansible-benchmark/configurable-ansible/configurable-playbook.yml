@@ -912,6 +912,34 @@
     - name: Initialize Maven wrapper
       shell: mvn -N io.takari:maven:wrapper
 
+    - name: Persist perf_event_paranoid override for hwpc-sensor
+      copy:
+        dest: /etc/sysctl.d/99-hwpc-sensor-perf-event.conf
+        content: "kernel.perf_event_paranoid = -1\n"
+        mode: '0644'
+
+    - name: Lower perf_event_paranoid so hwpc-sensor can access hardware performance counters
+      command: sysctl -w kernel.perf_event_paranoid=-1
+      changed_when: true
+
+    - name: Verify perf_event_paranoid was actually lowered
+      command: sysctl -n kernel.perf_event_paranoid
+      changed_when: false
+      register: perf_event_paranoid_check
+
+    - name: Assert hwpc-sensor will be able to access performance counters
+      assert:
+        that:
+          - perf_event_paranoid_check.stdout | trim | int <= 2
+        fail_msg: >-
+          kernel.perf_event_paranoid is still {{ perf_event_paranoid_check.stdout | trim }} on
+          {{ inventory_hostname }} after attempting to lower it. The Grid5000-deployed kernel/OS
+          image on this node enforces this policy at a level a privileged Docker container cannot
+          bypass, so hwpc-sensor will fail with "Permission denied" on perf_event_open and be
+          restarted in a crash loop by Docker (restart: unless-stopped). Pick a different kadeploy
+          OS image/kernel for this site, or grant the sensor container CAP_PERFMON explicitly if
+          the kernel supports it.
+
     - name: Run setup-formula-config
       shell: |
         cd {{ project_directory }}/ansible-benchmark/powerAPI-intel
@@ -1230,6 +1258,34 @@
         recursive: yes
         update: no
       when: source_mode == 'github'
+
+    - name: Persist perf_event_paranoid override for hwpc-sensor
+      copy:
+        dest: /etc/sysctl.d/99-hwpc-sensor-perf-event.conf
+        content: "kernel.perf_event_paranoid = -1\n"
+        mode: '0644'
+
+    - name: Lower perf_event_paranoid so hwpc-sensor can access hardware performance counters
+      command: sysctl -w kernel.perf_event_paranoid=-1
+      changed_when: true
+
+    - name: Verify perf_event_paranoid was actually lowered
+      command: sysctl -n kernel.perf_event_paranoid
+      changed_when: false
+      register: perf_event_paranoid_check
+
+    - name: Assert hwpc-sensor will be able to access performance counters
+      assert:
+        that:
+          - perf_event_paranoid_check.stdout | trim | int <= 2
+        fail_msg: >-
+          kernel.perf_event_paranoid is still {{ perf_event_paranoid_check.stdout | trim }} on
+          {{ inventory_hostname }} after attempting to lower it. The Grid5000-deployed kernel/OS
+          image on this node enforces this policy at a level a privileged Docker container cannot
+          bypass, so hwpc-sensor will fail with "Permission denied" on perf_event_open and be
+          restarted in a crash loop by Docker (restart: unless-stopped). Pick a different kadeploy
+          OS image/kernel for this site, or grant the sensor container CAP_PERFMON explicitly if
+          the kernel supports it.
 
     - name: Run setup-formula-config and start docker compose for power monitoring
       shell: |
