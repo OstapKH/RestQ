@@ -15,6 +15,9 @@ all:
     # Grid5000 Configuration (for grid5000 mode)
     # ====================================
     grid_user: okilbaso
+    # Pick any key from grid5000_site_profiles below (currently lille or
+    # nancy), or another Grid5000 site name for the generic 3-random-node
+    # fallback path (no pinned cluster, no persistent cache).
     grid_site: lille
     grid_time: '02:30:00'
     # Poll OAR's optimized state query until each reservation is Running.
@@ -23,8 +26,36 @@ all:
     scaphandre_timestep_s: 1 # Timestep in seconds for power monitoring
     ansible_ssh_private_key_file_g5k: ~/.ssh/grid5000_key_ubs
     ubuntu_apt_mirror: "https://ubuntu.mirrors.ovh.net/ubuntu"
-    # The deployed node disks are ephemeral. This private frontend path survives
-    # Lille reservations; cache use is disabled automatically on other sites.
+
+    # ====================================
+    # Grid5000 Site Profiles (per-site node pinning)
+    # ====================================
+    # node1/node2 (database + API servers, both running the PowerAPI/
+    # Scaphandre sensors) are pinned to a specific single-CPU-socket cluster
+    # on each listed site via an OAR `-p 'host like ...'` filter. node3 (the
+    # benchmark client, unmeasured) is still reserved as a random node on the
+    # same site.
+    #
+    # Single-socket is a deliberate constraint, not a preference: Scaphandre
+    # reads energy from the CPU package RAPL domain, one domain per physical
+    # socket. On a 2-socket node (e.g. chifflot) the two packages' power
+    # draw has to be summed to get whole-node CPU energy, which this
+    # project's measurement/validation pipeline does not currently do -- it
+    # assumes a single RAPL domain per host. Running on a 1-socket cluster
+    # (e.g. Nancy's gros) sidesteps that gap entirely instead of silently
+    # under-counting one socket's energy.
+    #
+    # Add a profile here only for clusters you've confirmed are single-socket
+    # (Grid5000's reference API / hardware page lists "N CPUs" per cluster).
+    grid5000_site_profiles:
+      lille:
+        cluster_pattern: "chifflot-%"
+      nancy:
+        cluster_pattern: "gros-%"
+
+    # The deployed node disks are ephemeral. This private frontend path
+    # survives Lille reservations; cache use is disabled automatically on
+    # other sites (see grid5000_cache.site below).
     grid5000_cache:
       enabled: true
       site: lille

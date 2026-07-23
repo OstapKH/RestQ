@@ -8,10 +8,18 @@ all:
     # ====================================
     # Grid5000 Configuration
     # ====================================
-    grid_site: lille  # Options: lille, nancy, rennes, grenoble, etc.
+    grid_site: lille  # Any key below pins node1/node2 to that cluster; any other Grid5000 site name falls back to 3 random nodes
     grid_time: '02:00:00'  # Reservation time (HH:MM:SS)
     scaphandre_timestep_s: 1 # Timestep in seconds for power monitoring
     ansible_ssh_private_key_file: ~/.ssh/grid5000_key
+
+    # Single-socket clusters only -- see the comment in configurable-inventory.yml
+    # for why (Scaphandre reads one RAPL domain per CPU package).
+    grid5000_site_profiles:
+      lille:
+        cluster_pattern: "chifflot-%"
+      nancy:
+        cluster_pattern: "gros-%"
     
     # ====================================
     # Benchmark Configuration 

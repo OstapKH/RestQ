@@ -73,120 +73,121 @@
       set_fact:
         benchmark_completed_successfully: false
 
-    # Reserve nodes for lille site (specific chifflot nodes + 1 other)
-    - name: Go to the frontend of {{ grid_site }} then create a job for chifflot nodes (lille site)
-      command: "oarsub -l host=2,walltime={{ grid_time }} -r 'now' -t deploy -p 'host like chifflot-%'"
+    # Reserve nodes for sites with a pinned single-socket cluster profile
+    # (see grid5000_site_profiles in the inventory: lille/chifflot, nancy/gros)
+    - name: Go to the frontend of {{ grid_site }} then create a job for the site's pinned cluster
+      command: "oarsub -l host=2,walltime={{ grid_time }} -r 'now' -t deploy -p 'host like {{ grid5000_site_profiles[grid_site].cluster_pattern }}'"
       register: job_output
-      when: grid_site == 'lille'
+      when: grid_site in grid5000_site_profiles
 
-    - name: Extract job ID for chifflot nodes (lille site)
+    - name: Extract job ID for pinned-cluster nodes (site profile)
       set_fact:
-        chifflot_job_id: "{{ job_output.stdout | regex_search('OAR_JOB_ID=(\\d+)', '\\1') | first }}"
-      when: grid_site == 'lille'
+        primary_job_id: "{{ job_output.stdout | regex_search('OAR_JOB_ID=(\\d+)', '\\1') | first }}"
+      when: grid_site in grid5000_site_profiles
 
-    - name: Log chifflot job ID (lille site)
+    - name: Log pinned-cluster job ID (site profile)
       debug:
-        msg: "Chifflot Job ID: {{ chifflot_job_id }}"
-      when: grid_site == 'lille'
+        msg: "Pinned-cluster Job ID: {{ primary_job_id }}"
+      when: grid_site in grid5000_site_profiles
 
-    - name: Reserve one additional node (lille site)
+    - name: Reserve one additional node (site profile)
       command: "oarsub -l host=1,walltime={{ grid_time }} -r 'now' -t deploy"
       register: other_job_output
-      when: grid_site == 'lille'
+      when: grid_site in grid5000_site_profiles
 
-    - name: Extract job ID for other node (lille site)
+    - name: Extract job ID for other node (site profile)
       set_fact:
         other_job_id: "{{ other_job_output.stdout | regex_search('OAR_JOB_ID=(\\d+)', '\\1') | first }}"
-      when: grid_site == 'lille'
+      when: grid_site in grid5000_site_profiles
 
-    - name: Log other job ID (lille site)
+    - name: Log other job ID (site profile)
       debug:
         msg: "Other Job ID: {{ other_job_id }}"
-      when: grid_site == 'lille'
+      when: grid_site in grid5000_site_profiles
 
-    - name: Wait for Lille reservations to start
+    - name: Wait for pinned-cluster reservations to start
       command: "oarstat -s -j {{ item.id }}"
-      register: lille_job_state
+      register: pinned_job_state
       changed_when: false
       until: >-
-        'Running' in lille_job_state.stdout or
-        (lille_job_state.stdout | regex_search('toError|Error|Finishing|Terminated|Hold|Suspended')) is not none
+        'Running' in pinned_job_state.stdout or
+        (pinned_job_state.stdout | regex_search('toError|Error|Finishing|Terminated|Hold|Suspended')) is not none
       failed_when: >-
-        lille_job_state.rc != 0 or
-        (lille_job_state.stdout | regex_search('toError|Error|Finishing|Terminated|Hold|Suspended')) is not none
+        pinned_job_state.rc != 0 or
+        (pinned_job_state.stdout | regex_search('toError|Error|Finishing|Terminated|Hold|Suspended')) is not none
       retries: "{{ grid_job_wait_timeout_minutes | int }}"
       delay: "{{ grid_job_poll_interval_s | int }}"
       loop:
-        - id: "{{ chifflot_job_id }}"
-          label: chifflot reservation
+        - id: "{{ primary_job_id }}"
+          label: pinned-cluster reservation
         - id: "{{ other_job_id }}"
           label: client reservation
       loop_control:
         label: "{{ item.label }} (job {{ item.id }})"
-      when: grid_site == 'lille'
+      when: grid_site in grid5000_site_profiles
 
-    - name: Get chifflot job details (lille site)
-      command: "oarstat -f -j {{ chifflot_job_id }}"
-      register: chifflot_job_details
+    - name: Get pinned-cluster job details (site profile)
+      command: "oarstat -f -j {{ primary_job_id }}"
+      register: primary_job_details
       changed_when: false
-      when: grid_site == 'lille'
+      when: grid_site in grid5000_site_profiles
 
-    - name: Extract assigned chifflot hostnames (lille site)
+    - name: Extract assigned pinned-cluster hostnames (site profile)
       set_fact:
-        chifflot_nodes: "{{ (chifflot_job_details.stdout | regex_search('assigned_hostnames = (.+)', '\\1')) | first | split('+') }}"
-      when: grid_site == 'lille'
+        primary_nodes: "{{ (primary_job_details.stdout | regex_search('assigned_hostnames = (.+)', '\\1')) | first | split('+') }}"
+      when: grid_site in grid5000_site_profiles
 
-    - name: Log chifflot nodes (lille site)
+    - name: Log pinned-cluster nodes (site profile)
       debug:
-        msg: "Chifflot nodes: {{ chifflot_nodes }}"
-      when: grid_site == 'lille'
+        msg: "Pinned-cluster nodes: {{ primary_nodes }}"
+      when: grid_site in grid5000_site_profiles
 
-    - name: Get other job details (lille site)
+    - name: Get other job details (site profile)
       command: "oarstat -f -j {{ other_job_id }}"
       register: other_job_details
       changed_when: false
-      when: grid_site == 'lille'
+      when: grid_site in grid5000_site_profiles
 
-    - name: Extract assigned other hostname (lille site)
+    - name: Extract assigned other hostname (site profile)
       set_fact:
         other_node: "{{ (other_job_details.stdout | regex_search('assigned_hostnames = (.+)', '\\1')) | first }}"
-      when: grid_site == 'lille'
+      when: grid_site in grid5000_site_profiles
 
-    - name: Log other node (lille site)
+    - name: Log other node (site profile)
       debug:
         msg: "Other node: {{ other_node }}"
-      when: grid_site == 'lille'
+      when: grid_site in grid5000_site_profiles
 
-    - name: Assign node names to variables (lille site)
+    - name: Assign node names to variables (site profile)
       set_fact:
-        node1: "{{ chifflot_nodes[0] }}"
-        node2: "{{ chifflot_nodes[1] }}"
+        node1: "{{ primary_nodes[0] }}"
+        node2: "{{ primary_nodes[1] }}"
         node3: "{{ other_node }}"
         cacheable: true
-      when: grid_site == 'lille'
+      when: grid_site in grid5000_site_profiles
 
-    - name: Log node assignments (lille site)
+    - name: Log node assignments (site profile)
       debug:
-        msg: "Node1 (chifflot): {{ node1 }}, Node2 (chifflot): {{ node2 }}, Node3: {{ node3 }}"
-      when: grid_site == 'lille'
+        msg: "Node1 ({{ grid5000_site_profiles[grid_site].cluster_pattern }}): {{ node1 }}, Node2 ({{ grid5000_site_profiles[grid_site].cluster_pattern }}): {{ node2 }}, Node3: {{ node3 }}"
+      when: grid_site in grid5000_site_profiles
 
-    # Reserve nodes for non-lille sites (3 random nodes)
-    - name: Reserve 3 random nodes (non-lille sites)
+    # Reserve nodes for sites without a pinned cluster profile (3 random nodes)
+    - name: Reserve 3 random nodes (non-profiled sites)
       command: "oarsub -l host=3,walltime={{ grid_time }} -r 'now' -t deploy"
       register: random_job_output
-      when: grid_site != 'lille'
+      when: grid_site not in grid5000_site_profiles
 
-    - name: Extract job ID for random nodes (non-lille sites)
+    - name: Extract job ID for random nodes (non-profiled sites)
       set_fact:
         random_job_id: "{{ random_job_output.stdout | regex_search('OAR_JOB_ID=(\\d+)', '\\1') | first }}"
-      when: grid_site != 'lille'
+      when: grid_site not in grid5000_site_profiles
 
-    - name: Log random job ID (non-lille sites)
+    - name: Log random job ID (non-profiled sites)
       debug:
         msg: "Random nodes Job ID: {{ random_job_id }}"
-      when: grid_site != 'lille'
+      when: grid_site not in grid5000_site_profiles
 
-    - name: Wait for random-node reservation to start (non-lille sites)
+    - name: Wait for random-node reservation to start (non-profiled sites)
       command: "oarstat -s -j {{ random_job_id }}"
       register: random_job_state
       changed_when: false
@@ -198,36 +199,36 @@
         (random_job_state.stdout | regex_search('toError|Error|Finishing|Terminated|Hold|Suspended')) is not none
       retries: "{{ grid_job_wait_timeout_minutes | int }}"
       delay: "{{ grid_job_poll_interval_s | int }}"
-      when: grid_site != 'lille'
+      when: grid_site not in grid5000_site_profiles
 
-    - name: Get random nodes job details (non-lille sites)
+    - name: Get random nodes job details (non-profiled sites)
       command: "oarstat -f -j {{ random_job_id }}"
       register: random_job_details
       changed_when: false
-      when: grid_site != 'lille'
+      when: grid_site not in grid5000_site_profiles
 
-    - name: Extract assigned random hostnames (non-lille sites)
+    - name: Extract assigned random hostnames (non-profiled sites)
       set_fact:
         random_nodes: "{{ (random_job_details.stdout | regex_search('assigned_hostnames = (.+)', '\\1')) | first | split('+') }}"
-      when: grid_site != 'lille'
+      when: grid_site not in grid5000_site_profiles
 
-    - name: Log random nodes (non-lille sites)
+    - name: Log random nodes (non-profiled sites)
       debug:
         msg: "Random nodes: {{ random_nodes }}"
-      when: grid_site != 'lille'
+      when: grid_site not in grid5000_site_profiles
 
-    - name: Assign node names to variables (non-lille sites)
+    - name: Assign node names to variables (non-profiled sites)
       set_fact:
         node1: "{{ random_nodes[0] }}"
         node2: "{{ random_nodes[1] }}"
         node3: "{{ random_nodes[2] }}"
         cacheable: true
-      when: grid_site != 'lille'
+      when: grid_site not in grid5000_site_profiles
 
-    - name: Log node assignments (non-lille sites)
+    - name: Log node assignments (non-profiled sites)
       debug:
         msg: "Node1: {{ node1 }}, Node2: {{ node2 }}, Node3: {{ node3 }}"
-      when: grid_site != 'lille'
+      when: grid_site not in grid5000_site_profiles
 
     - name: Add nodes to in-memory inventory
       add_host:
@@ -1152,19 +1153,6 @@
       set_fact:
         library_install_dir: /root/public
 
-    - name: Install podman-docker to {{ library_install_dir }}
-      apt:
-        name:
-          - podman-docker
-        state: present
-        install_recommends: no
-      environment:
-        DESTDIR: "{{ library_install_dir }}"
-
-    - name: Log installation of podman-docker
-      debug:
-        msg: "Podman-docker installed in {{ library_install_dir }}."
-
     - name: Install docker.io to {{ library_install_dir }}
       apt:
         name:
@@ -1177,6 +1165,12 @@
     - name: Log installation of docker.io
       debug:
         msg: "Docker.io installed in {{ library_install_dir }}."
+
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: true
 
     - name: Install docker-compose to {{ library_install_dir }}
       apt:
@@ -2160,18 +2154,18 @@
       ansible.builtin.meta: end_play
       when: not (benchmark_completed_successfully | default(false) | bool)
 
-    - name: Release Lille reservations
-      command: "oardel {{ chifflot_job_id }} {{ other_job_id }}"
-      register: lille_cleanup_result
-      when: grid_site == 'lille'
+    - name: Release pinned-cluster reservations (site profile)
+      command: "oardel {{ primary_job_id }} {{ other_job_id }}"
+      register: pinned_cleanup_result
+      when: grid_site in grid5000_site_profiles
 
-    - name: Release non-Lille reservation
+    - name: Release non-profiled reservation
       command: "oardel {{ random_job_id }}"
       register: random_cleanup_result
-      when: grid_site != 'lille'
+      when: grid_site not in grid5000_site_profiles
 
     - name: Report released Grid5000 reservations
       debug:
         msg: >-
           Released Grid5000 job(s):
-          {{ (chifflot_job_id ~ ', ' ~ other_job_id) if grid_site == 'lille' else random_job_id }}
+          {{ (primary_job_id ~ ', ' ~ other_job_id) if grid_site in grid5000_site_profiles else random_job_id }}

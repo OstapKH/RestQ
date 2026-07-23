@@ -38,6 +38,45 @@ scaphandre_timestep_s: 1
 ansible_ssh_private_key_file_g5k: ~/.ssh/grid5000_key_ubs
 ```
 
+### Grid5000 Site Profiles
+
+`grid_site` alone picks which Grid'5000 site to reserve on, but the database
+and API nodes (node1/node2 -- the two nodes actually measured by PowerAPI and
+Scaphandre) additionally need pinning to a specific cluster whose nodes have
+**one CPU socket**. That constraint is configured separately, per site, in
+`grid5000_site_profiles`:
+
+```yaml
+grid5000_site_profiles:
+  lille:
+    cluster_pattern: "chifflot-%"
+  nancy:
+    cluster_pattern: "gros-%"
+```
+
+Setting `grid_site` to any key present in `grid5000_site_profiles` reserves
+node1/node2 from that cluster (via an OAR `-p 'host like <cluster_pattern>'`
+filter) plus one extra, unconstrained node for node3 (the benchmark client,
+which isn't measured and has no socket requirement). Setting `grid_site` to
+any other Grid'5000 site name (not a key in `grid5000_site_profiles`) falls
+back to reserving 3 unconstrained, randomly-assigned nodes on that site --
+usable for a quick smoke test, but without the single-socket guarantee below,
+and without the private Lille result/binary cache (which is hardcoded to
+`grid5000_cache.site: lille` and is skipped automatically everywhere else).
+
+**Why single-socket matters:** Scaphandre reads CPU energy from the RAPL
+(Running Average Power Limit) counters exposed per physical CPU package. A
+1-socket node has exactly one such counter, so "socket energy" and "node CPU
+energy" are the same number. A 2-socket node exposes two independent RAPL
+domains that would need to be read and summed to get whole-node CPU energy --
+this project's measurement and validation pipeline does not currently do
+that summation, it assumes a single domain per host. Running on a node with
+more than one socket would silently account for only one socket's share of
+the CPU energy. Add a new entry to `grid5000_site_profiles` only for a
+cluster you've confirmed is single-socket (Grid'5000's
+[hardware reference](https://www.grid5000.fr/w/Hardware) lists "N CPUs" per
+cluster -- pick one where N is 1).
+
 ### Manual Node Configuration
 
 If `deployment_mode` is `manual`, you need to specify the nodes yourself:
