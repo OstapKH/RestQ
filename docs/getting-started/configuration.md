@@ -80,11 +80,20 @@ This section defines where to get the source code from.
 
 -   `github_repo_url`: The URL of the RestQFramework GitHub repository.
 -   `project_directory`: The directory where the project will be cloned on the remote machines.
+-   `source_mode`: `github` (default) clones `github_repo_url`; `local_archive`
+    packages the current local working tree, including uncommitted source
+    changes, and transfers the same checksum-verified snapshot to every node.
 
 ```yaml
 github_repo_url: "https://github.com/OstapKH/RestQ.git"
 project_directory: "/root/RestQ"
+source_mode: github  # github | local_archive
 ```
+
+Use `local_archive` only when developing or testing unpushed code. It excludes
+Git metadata, build outputs, local environment files, and result directories;
+it does not publish the snapshot to GitHub. `experiment_info.json` records the
+archive filename and SHA-256 so the measured source can be identified later.
 
 ## Database Configuration
 

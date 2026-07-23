@@ -62,9 +62,21 @@ ansible-playbook -i configurable-inventory.yml configurable-playbook.yml \
   -e benchmark_parameters_file=parameters-smoke.xml
 ```
 
-The playbook clones `github_repo_url` on all remote nodes. Commit and push the
-implementation you intend to measure before a Grid’5000 run; unpushed changes
-from the laptop are not transferred, while the two selected XML files are.
+By default, the playbook clones `github_repo_url` on all remote nodes. Commit
+and push the implementation you intend to measure before a Grid’5000 run.
+
+For development runs that must measure uncommitted local code, use a verified
+snapshot instead:
+
+```bash
+ansible-playbook -i configurable-inventory.yml configurable-playbook.yml \
+  -e source_mode=local_archive
+```
+
+`local_archive` transfers the current source tree (excluding Git metadata,
+build caches, local `.env` files, and result directories) to each node without
+pushing it. The result metadata records its SHA-256. Use the default GitHub
+mode for shareable, revision-based experiments.
 
 The playbook builds the images, restores the database, starts the API, runs
 the benchmark client to completion, and writes an experiment folder to
