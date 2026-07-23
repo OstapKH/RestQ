@@ -802,7 +802,7 @@
     - name: Build Scaphandre
       shell: |
         cd {{ library_install_dir }}/scaphandre
-        /root/.cargo/bin/cargo build --release
+        /root/.cargo/bin/cargo build --release --no-default-features --features json,containers
       when: cached_scaphandre_checksum.rc | default(1) != 0
 
     - name: Log Scaphandre build completion
@@ -1131,7 +1131,7 @@
     - name: Build Scaphandre
       shell: |
         cd {{ library_install_dir }}/scaphandre
-        /root/.cargo/bin/cargo build --release
+        /root/.cargo/bin/cargo build --release --no-default-features --features json,containers
 
     - name: Log Scaphandre build completion
       debug:
